@@ -19,14 +19,12 @@ function ArticleItem({
   startIndex,
   dataIndex,
   isActive,
-  scrollerRef,
 }: {
   article: Article;
   index: number;
   startIndex: number;
   dataIndex: number;
   isActive: boolean;
-  scrollerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const router = useRouter();
   const [imgError, setImgError] = useState(false);
@@ -36,20 +34,16 @@ function ArticleItem({
 
   /* 스크롤 컨테이너의 scrollTop을 감지하여 헤더 배경 전환 */
   useEffect(() => {
-    const container = scrollerRef.current;
-    if (!container) return;
+    const item = itemRef.current;
+    if (!item) return;
 
     const handleScroll = () => {
-      const item = itemRef.current;
-      if (!item) return;
-      // container 내에서 이 article item의 상단 기준으로 얼마나 지나갔는지
-      const scrolledPast = container.scrollTop - item.offsetTop;
-      setIsScrolled(scrolledPast > 20);
+      setIsScrolled(item.scrollTop > 20);
     };
 
-    container.addEventListener('scroll', handleScroll, { passive: true });
-    return () => container.removeEventListener('scroll', handleScroll);
-  }, [scrollerRef]);
+    item.addEventListener('scroll', handleScroll, { passive: true });
+    return () => item.removeEventListener('scroll', handleScroll);
+  }, []);
 
   return (
     <div ref={itemRef} className="article-snap-item fade-in-up" data-index={dataIndex}>
@@ -211,30 +205,46 @@ function ArticleItem({
           {article.summary}
         </p>
 
-        {/* 원문 링크 */}
-        <a
-          href={article.source_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 4,
-            fontSize: 14,
-            color: 'var(--text-disabled)',
-            textDecoration: 'none',
-          }}
-        >
-          원문 보기 →
-        </a>
+        {/* 액션 버튼 그룹 (원문보기 + 컬렉션 저장) */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          marginTop: 16,
+          width: '100%',
+        }}>
+          <a
+            href={article.source_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              flex: 1,
+              height: 42,
+              borderRadius: 21,
+              background: 'rgba(255, 255, 255, 0.04)',
+              border: '0.5px solid var(--border)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 14,
+              fontWeight: 600,
+              color: 'var(--text-secondary)',
+              textDecoration: 'none',
+              transition: 'background 0.2s ease',
+            }}
+          >
+            원문 보기
+          </a>
+          <div style={{ flex: 1 }}>
+            <BookmarkButton article={article} variant="wide" />
+          </div>
+        </div>
 
         <div className="divider" />
 
         {/* AI 패널 */}
         <AiPanel
-          articleId={article.id}
-          context={article.summary}
-          hookTitle={article.hook_title}
+          article={article}
           isActive={isActive}
         />
       </div>
@@ -251,13 +261,13 @@ export default function ArticleScroller({ articles, initialId }: Props) {
     0
   );
 
-  // 초기 진입 시 해당 아이템으로 스크롤
+  // 초기 진입 시 해당 아이템으로 스크롤 (가로 스와이프이므로 left 방향으로 스크롤)
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     const target = container.children[initialIndex] as HTMLElement;
     if (target) {
-      container.scrollTo({ top: target.offsetTop, behavior: 'instant' });
+      container.scrollTo({ left: target.offsetLeft, behavior: 'instant' });
     }
     setActiveIndex(initialIndex);
   }, [initialIndex]);
@@ -270,7 +280,7 @@ export default function ArticleScroller({ articles, initialId }: Props) {
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
-          if (entry.isIntersecting && entry.boundingClientRect.height > 100) {
+          if (entry.isIntersecting && entry.boundingClientRect.width > 100) {
             const idx = Number((entry.target as HTMLElement).dataset.index);
             const id = articles[idx]?.id;
             if (id && window.location.pathname !== `/feed/${id}`) {
@@ -297,7 +307,6 @@ export default function ArticleScroller({ articles, initialId }: Props) {
           startIndex={initialIndex}
           dataIndex={idx}
           isActive={idx === activeIndex}
-          scrollerRef={containerRef}
         />
       ))}
     </div>

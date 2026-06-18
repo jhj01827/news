@@ -204,13 +204,21 @@ body {
   max-width: 393px;
   margin: 0 auto;
   height: 100dvh;
-  overflow-y: scroll;
-  scroll-snap-type: y mandatory;
+  display: flex;
+  flex-direction: row;
+  overflow-y: hidden;
+  overflow-x: scroll;
+  scroll-snap-type: x mandatory;
   -webkit-overflow-scrolling: touch;
 }
 .article-snap-item {
   scroll-snap-align: start;
-  min-height: 100dvh;
+  width: 100%;
+  max-width: 393px;
+  flex-shrink: 0;
+  height: 100dvh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
 }

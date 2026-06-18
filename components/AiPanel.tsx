@@ -1,17 +1,19 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { ChatMessage } from '@/lib/types';
+import { Article, ChatMessage } from '@/lib/types';
+import { addToCollection } from '@/lib/collection';
 
 interface Props {
-  articleId: string;
-  context: string;
-  hookTitle: string;
+  article: Article;
   /** 현재 스크롤로 보이는 기사인지 여부 — 입력창 fixed 위치 표시 여부 */
   isActive?: boolean;
 }
 
-export default function AiPanel({ articleId, context, hookTitle, isActive = false }: Props) {
+export default function AiPanel({ article, isActive = false }: Props) {
+  const articleId = article.id;
+  const context = article.summary;
+  const hookTitle = article.hook_title;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -80,6 +82,14 @@ export default function AiPanel({ articleId, context, hookTitle, isActive = fals
     const updated = [...memos, content];
     setMemos(updated);
     localStorage.setItem(`brief_memos_${articleId}`, JSON.stringify(updated));
+
+    // AI 답변 저장 시 해당 기사를 자동으로 컬렉션에 추가
+    addToCollection(article);
+
+    // 컬렉션 변경 이벤트를 발생시켜 헤더 및 다른 저장 버튼의 UI 갱신 유도
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('collection-change'));
+    }
   };
 
   // 메모 삭제
