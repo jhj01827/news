@@ -4,6 +4,28 @@ import { supabaseAdmin } from '@/lib/supabase';
 
 export const runtime = 'nodejs';
 
+function normalizeUrl(urlStr: string): string {
+  try {
+    const url = new URL(urlStr);
+    let path = url.pathname;
+    if (path.endsWith('/')) {
+      path = path.slice(0, -1);
+    }
+    return (url.hostname + path).toLowerCase();
+  } catch (e) {
+    return urlStr.trim().toLowerCase();
+  }
+}
+
+const FALLBACK_TAGS: Record<string, string[]> = {
+  tech: ['테크', 'IT', '기술'],
+  beauty: ['뷰티', '뷰티트렌드', '스킨케어'],
+  fashion: ['패션', '트렌드', '스타일'],
+  retail: ['리테일', '비즈니스', '유통'],
+  culture: ['컬처', '문화', '트렌드'],
+  meme: ['밈', '인터넷문화', '트렌드'],
+};
+
 interface CategoryConfig {
   key: 'tech' | 'beauty' | 'fashion' | 'retail' | 'culture' | 'meme';
   section: string;
@@ -21,6 +43,10 @@ const CATEGORIES_CONFIG: CategoryConfig[] = [
 
 export async function GET(req: NextRequest) {
   try {
+    const limitParam = req.nextUrl.searchParams.get('limit');
+    const forceParam = req.nextUrl.searchParams.get('force') === 'true';
+    const pageSize = limitParam ? parseInt(limitParam, 10) : 5; // default page-size is 5
+
     const guardianApiKey = process.env.GUARDIAN_API_KEY;
     const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
     const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -60,7 +86,7 @@ export async function GET(req: NextRequest) {
     }
 
     const existingUrls = new Set<string>(
-      existingArticles ? existingArticles.map((a: { source_url: string }) => a.source_url) : []
+      existingArticles ? existingArticles.map((a: { source_url: string }) => normalizeUrl(a.source_url)) : []
     );
 
     const anthropic = new Anthropic({
@@ -97,7 +123,7 @@ export async function GET(req: NextRequest) {
           guardianUrl.searchParams.append('q', config.q);
         }
         guardianUrl.searchParams.append('show-fields', 'headline,bodyText,thumbnail,shortUrl');
-        guardianUrl.searchParams.append('page-size', '3'); // 호출당 카테고리별 3개씩 가져옴
+        guardianUrl.searchParams.append('page-size', pageSize.toString()); // 호출당 가져오는 기사 개수
         guardianUrl.searchParams.append('order-by', 'newest');
 
         const guardianRes = await fetch(guardianUrl.toString());
@@ -112,8 +138,8 @@ export async function GET(req: NextRequest) {
         for (const article of results) {
           const sourceUrl = article.webUrl;
 
-          // 이미 저장된 기사이면 스킵
-          if (existingUrls.has(sourceUrl)) {
+          // 이미 저장된 기사이면 스킵 (forceParam이 true가 아닐 때만)
+          if (!forceParam && existingUrls.has(normalizeUrl(sourceUrl))) {
             categoryReport.skipped++;
             continue;
           }
@@ -149,30 +175,36 @@ export async function GET(req: NextRequest) {
 
             const text = claudeResponse.content[0].type === 'text' ? claudeResponse.content[0].text : '';
             
-            // JSON 응답 파싱 시도 (마크다운 백틱 등의 잔여 찌꺼기 제거)
-            let parsed: { hook_title: string; summary: string; keywords: string[] };
+            // JSON 응답 파싱 시도 (Regex로 '{' 와 '}' 사이를 추출하여 파싱)
+            let parsed: { hook_title?: string; summary?: string; keywords?: string[] } | null = null;
             try {
-              const cleaned = text.trim().replace(/^```json/, '').replace(/```$/, '').trim();
-              parsed = JSON.parse(cleaned);
+              const jsonMatch = text.match(/\{[\s\S]*\}/);
+              if (jsonMatch) {
+                parsed = JSON.parse(jsonMatch[0]);
+              } else {
+                throw new Error('No JSON object found in Claude response');
+              }
             } catch (jsonErr: any) {
-              console.error(`[Sync API] JSON parse error for article ${sourceUrl}:`, text);
-              throw new Error(`Failed to parse Claude output as JSON: ${jsonErr.message}`);
+              console.warn(`[Sync API] Failed to parse Claude output as JSON for article ${sourceUrl}:`, text, jsonErr.message);
+              // JSON 파싱 실패시 null로 두어 폴백을 타게 함
             }
 
-            // 필수 필드 체크
-            if (!parsed.hook_title || !parsed.summary || !Array.isArray(parsed.keywords)) {
-              throw new Error('Claude response is missing required fields or format is incorrect.');
-            }
+            // 파싱된 데이터 적용 또는 폴백(Fallback) 처리
+            const hookTitle = parsed?.hook_title || headline;
+            const summaryContent = parsed?.summary || (bodyText ? bodyText.substring(0, 350) + '...' : '요약 정보가 제공되지 않습니다.');
+            const articleTags = (parsed && Array.isArray(parsed.keywords)) 
+              ? parsed.keywords 
+              : (FALLBACK_TAGS[config.key] || [config.key]);
 
             // 4. Supabase DB에 저장 (RLS 우회를 위해 supabaseAdmin 사용, 컬럼명은 tags로 매핑)
             const { error: insertError } = await supabaseAdmin.from('articles').insert({
               category: config.key,
-              hook_title: parsed.hook_title,
-              summary: parsed.summary,
+              hook_title: hookTitle,
+              summary: summaryContent,
               image_url: article.fields?.thumbnail || null,
               source_url: sourceUrl,
               source_name: 'The Guardian',
-              tags: parsed.keywords,
+              tags: articleTags,
               published_at: article.webPublicationDate || new Date().toISOString(),
             });
 
@@ -181,7 +213,7 @@ export async function GET(req: NextRequest) {
             }
 
             categoryReport.inserted++;
-            existingUrls.add(sourceUrl); // 이번 배치 내 중복 추가 방지
+            existingUrls.add(normalizeUrl(sourceUrl)); // 이번 배치 내 중복 추가 방지
           } catch (itemErr: any) {
             console.error(`[Sync API] Failed to process article ${sourceUrl}:`, itemErr.message);
             categoryReport.failed++;
