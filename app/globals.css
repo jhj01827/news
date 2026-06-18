@@ -379,9 +379,8 @@ body {
   cursor: not-allowed;
 }
 
-/* ── 하단 네비 (iOS 26 liquid glass) ── */
 .bottom-nav {
-  position: absolute;
+  position: fixed;
   bottom: 20px;
   left: 50%;
   transform: translateX(-50%);

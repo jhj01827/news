@@ -49,13 +49,22 @@ export default function FeedPage() {
 
   const [isScrolled, setIsScrolled] = useState(false);
 
-  // 스크롤 감지 (BeReal 스타일 헤더를 위함)
+  // 스크롤 감지 (BeReal 스타일 헤더를 위함 - 스크롤바가 app-container에 있으므로 이를 감지)
   useEffect(() => {
+    const container = document.querySelector('.app-container');
     const handleScroll = () => {
-      setIsScrolled(window.scrollY > 20);
+      if (container) {
+        setIsScrolled(container.scrollTop > 20);
+      }
     };
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
+    if (container) {
+      container.addEventListener('scroll', handleScroll, { passive: true });
+    }
+    return () => {
+      if (container) {
+        container.removeEventListener('scroll', handleScroll);
+      }
+    };
   }, []);
 
   // 피드 복귀 시 스크롤 위치 복원 및 URL 쿼리 파라미터 파싱
@@ -85,8 +94,11 @@ export default function FeedPage() {
     }
     if (savedScroll) {
       setTimeout(() => {
-        window.scrollTo({ top: Number(savedScroll), behavior: 'instant' });
-        setIsScrolled(Number(savedScroll) > 20);
+        const container = document.querySelector('.app-container');
+        if (container) {
+          container.scrollTo({ top: Number(savedScroll), behavior: 'instant' });
+          setIsScrolled(Number(savedScroll) > 20);
+        }
         sessionStorage.removeItem('brief_scroll');
       }, 150);
     }
@@ -94,7 +106,10 @@ export default function FeedPage() {
 
   const handleCategoryChange = (cat: Category) => {
     setCategory(cat);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    const container = document.querySelector('.app-container');
+    if (container) {
+      container.scrollTo({ top: 0, behavior: 'smooth' });
+    }
     setIsScrolled(false);
   };
 
