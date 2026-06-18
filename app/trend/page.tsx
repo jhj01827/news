@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import CategoryTabs from '@/components/CategoryTabs';
-import BottomNav from '@/components/BottomNav';
 import { Category, Article } from '@/lib/types';
 import { fetchAllArticles } from '@/lib/articles';
 
@@ -273,7 +272,7 @@ export default function TrendMapPage() {
         })}
       </div>
 
-      <BottomNav />
+
 
       {/* ── 바텀 시트 backdrop ── */}
       {sheet && (

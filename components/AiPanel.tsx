@@ -18,11 +18,17 @@ export default function AiPanel({ articleId, context, hookTitle, isActive = fals
   const [memos, setMemos] = useState<string[]>([]);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(true);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
-  // 메시지 스크롤 제어
+  // 메시지 스크롤 제어 (상위 기사 스냅 스크롤 영향을 주지 않기 위해 내부 컨테이너만 스크롤)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
   }, [messages]);
 
   // 해당 기사의 저장된 메모 로드
@@ -83,8 +89,8 @@ export default function AiPanel({ articleId, context, hookTitle, isActive = fals
     localStorage.setItem(`brief_memos_${articleId}`, JSON.stringify(updated));
   };
 
-  const send = async () => {
-    const q = input.trim();
+  const send = async (customText?: string) => {
+    const q = (typeof customText === 'string' ? customText : input).trim();
     if (!q || loading) return;
 
     const userMsg: ChatMessage = { role: 'user', content: q };
@@ -223,7 +229,7 @@ export default function AiPanel({ articleId, context, hookTitle, isActive = fals
       )}
 
       {/* 메시지 영역 */}
-      <div className="ai-panel-messages">
+      <div ref={messagesContainerRef} className="ai-panel-messages">
         {messages.length === 0 && (
           <>
             {loadingSuggestions ? (
@@ -245,7 +251,7 @@ export default function AiPanel({ articleId, context, hookTitle, isActive = fals
                 {suggestions.map((suggestion) => (
                   <button
                     key={suggestion}
-                    onClick={() => setInput(suggestion)}
+                    onClick={() => send(suggestion)}
                     style={{
                       background: 'rgba(255,255,255,0.04)',
                       border: '0.5px solid var(--border)',
@@ -313,7 +319,6 @@ export default function AiPanel({ articleId, context, hookTitle, isActive = fals
             )}
           </div>
         ))}
-        <div ref={messagesEndRef} />
       </div>
 
       {/* 입력창 — 패널 내부에 포함 (구분선 위에 위치하게끔 함) */}
@@ -329,7 +334,7 @@ export default function AiPanel({ articleId, context, hookTitle, isActive = fals
         />
         <button
           className="ai-send-btn"
-          onClick={send}
+          onClick={() => send()}
           disabled={!input.trim() || loading}
           aria-label="질문 전송"
         >
