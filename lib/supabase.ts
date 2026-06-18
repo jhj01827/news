@@ -8,3 +8,10 @@ export const supabase = createClient(
   supabaseUrl || 'https://placeholder.supabase.co',
   supabaseAnonKey || 'placeholder'
 );
+
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
+
+export const supabaseAdmin = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseServiceKey || supabaseAnonKey || 'placeholder'
+);

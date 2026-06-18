@@ -9,7 +9,7 @@ create table if not exists articles (
   image_url    text,
   source_url   text not null,
   source_name  text,
-  keywords     text[],
+  tags         text[],
   published_at timestamptz not null default now()
 );
 

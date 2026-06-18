@@ -14,6 +14,13 @@ const isConfigured =
   !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY &&
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY !== 'placeholder';
 
+function mapArticle(a: any): Article {
+  return {
+    ...a,
+    keywords: a.tags || a.keywords || [],
+  };
+}
+
 /** 전체 기사 목록 (최신순, 최대 200개) */
 export async function fetchAllArticles(): Promise<Article[]> {
   if (!isConfigured) return MOCK_ARTICLES;
@@ -30,7 +37,7 @@ export async function fetchAllArticles(): Promise<Article[]> {
       return MOCK_ARTICLES;
     }
 
-    return data && data.length > 0 ? (data as Article[]) : MOCK_ARTICLES;
+    return data && data.length > 0 ? data.map(mapArticle) : MOCK_ARTICLES;
   } catch (e) {
     console.error('[Supabase] fetchAllArticles exception:', e);
     return MOCK_ARTICLES;
@@ -55,7 +62,7 @@ export async function fetchArticlesByCategory(category: Exclude<Category, 'all'>
     }
 
     return data && data.length > 0
-      ? (data as Article[])
+      ? data.map(mapArticle)
       : MOCK_ARTICLES.filter((a) => a.category === category);
   } catch (e) {
     console.error('[Supabase] fetchArticlesByCategory exception:', e);
@@ -84,7 +91,7 @@ export async function fetchArticleById(id: string): Promise<Article | null> {
       return MOCK_ARTICLES.find((a) => a.id === id) ?? null;
     }
 
-    return data as Article;
+    return mapArticle(data);
   } catch (e) {
     console.error('[Supabase] fetchArticleById exception:', e);
     return MOCK_ARTICLES.find((a) => a.id === id) ?? null;

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { supabase } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabase';
 
 export const runtime = 'nodejs';
 
@@ -23,6 +23,7 @@ export async function GET(req: NextRequest) {
   try {
     const guardianApiKey = process.env.GUARDIAN_API_KEY;
     const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
+    const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!guardianApiKey) {
       return NextResponse.json(
@@ -38,8 +39,15 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // 1. Supabase에서 기존 기사의 source_url 목록을 조회해 중복 방지 캐시로 사용
-    const { data: existingArticles, error: dbError } = await supabase
+    if (!supabaseServiceRoleKey) {
+      return NextResponse.json(
+        { error: 'SUPABASE_SERVICE_ROLE_KEY environment variable is not set.' },
+        { status: 500 }
+      );
+    }
+
+    // 1. Supabase에서 기존 기사의 source_url 목록을 조회해 중복 방지 캐시로 사용 (RLS 우회하는 Admin 클라이언트 사용)
+    const { data: existingArticles, error: dbError } = await supabaseAdmin
       .from('articles')
       .select('source_url');
 
@@ -156,15 +164,15 @@ export async function GET(req: NextRequest) {
               throw new Error('Claude response is missing required fields or format is incorrect.');
             }
 
-            // 4. Supabase DB에 저장
-            const { error: insertError } = await supabase.from('articles').insert({
+            // 4. Supabase DB에 저장 (RLS 우회를 위해 supabaseAdmin 사용, 컬럼명은 tags로 매핑)
+            const { error: insertError } = await supabaseAdmin.from('articles').insert({
               category: config.key,
               hook_title: parsed.hook_title,
               summary: parsed.summary,
               image_url: article.fields?.thumbnail || null,
               source_url: sourceUrl,
               source_name: 'The Guardian',
-              keywords: parsed.keywords,
+              tags: parsed.keywords,
               published_at: article.webPublicationDate || new Date().toISOString(),
             });
 
