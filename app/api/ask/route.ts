@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
