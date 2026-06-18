@@ -54,10 +54,16 @@ function buildTagData(filterCategory: Category, allArticles: Article[]): TagData
 
   let result = Array.from(map.values()).sort((a, b) => b.count - a.count);
 
-  // 전체(all) 탭에서는 기사 수가 많아 1개짜리 마이너한 키워드들이 화면을 가리고
-  // 희미하게(작게) 많이 표시되므로, 카운트가 2개 이상인 주요 키워드만 필터링하여 노출
+  // 전체(all) 탭에서는 기사 수가 많아 1개짜리 마이너한 키워드들이 화면을 가리는 현상을 방지하되,
+  // 너무 비어 보이지 않도록 최소 10개 내외의 버블은 보장하여 노출합니다.
   if (filterCategory === 'all') {
-    result = result.filter((tag) => tag.count >= 2);
+    const mainTags = result.filter((tag) => tag.count >= 2);
+    if (mainTags.length >= 10) {
+      result = mainTags;
+    } else {
+      // 2개 이상 매칭되는 주요 태그가 10개 미만이면 전체 정렬 기준 상위 10개를 노출합니다.
+      result = result.slice(0, 10);
+    }
   }
 
   return result;
