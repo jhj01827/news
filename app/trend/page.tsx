@@ -52,7 +52,15 @@ function buildTagData(filterCategory: Category, allArticles: Article[]): TagData
     }
   }
 
-  return Array.from(map.values()).sort((a, b) => b.count - a.count);
+  let result = Array.from(map.values()).sort((a, b) => b.count - a.count);
+
+  // 전체(all) 탭에서는 기사 수가 많아 1개짜리 마이너한 키워드들이 화면을 가리고
+  // 희미하게(작게) 많이 표시되므로, 카운트가 2개 이상인 주요 키워드만 필터링하여 노출
+  if (filterCategory === 'all') {
+    result = result.filter((tag) => tag.count >= 2);
+  }
+
+  return result;
 }
 
 // ─── 버블 레이아웃 ───────────────────────────────────────────────
@@ -86,9 +94,9 @@ const POSITIONS = [
 
 // 3단계 고정 크기: large(3+개), medium(2개), small(1개)
 function getBubbleSize(count: number) {
-  if (count >= 3) return { size: 90, fontSize: 14, fontWeight: 700 };
-  if (count === 2) return { size: 70, fontSize: 12, fontWeight: 600 };
-  return { size: 52, fontSize: 11, fontWeight: 500 };
+  if (count >= 3) return { size: 115, fontSize: 16, fontWeight: 700 };
+  if (count === 2) return { size: 92, fontSize: 13.5, fontWeight: 600 };
+  return { size: 70, fontSize: 11.5, fontWeight: 500 };
 }
 
 // ─── 메인 컴포넌트 ────────────────────────────────────────────────
