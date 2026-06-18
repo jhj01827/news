@@ -4,9 +4,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import CategoryTabs from '@/components/CategoryTabs';
 import BottomNav from '@/components/BottomNav';
-import { Category } from '@/lib/types';
-import { MOCK_ARTICLES } from '@/lib/mockData';
-import { Article } from '@/lib/types';
+import { Category, Article } from '@/lib/types';
+import { fetchAllArticles } from '@/lib/articles';
 
 // ─── 태그 빈도 계산 ───────────────────────────────────────────────
 interface TagData {
@@ -17,9 +16,9 @@ interface TagData {
 }
 
 // 전체 기사 기준으로 태그별 전체 카운트를 먼저 계산
-function buildGlobalCountMap(): Map<string, number> {
+function buildGlobalCountMap(allArticles: Article[]): Map<string, number> {
   const countMap = new Map<string, number>();
-  for (const article of MOCK_ARTICLES) {
+  for (const article of allArticles) {
     if (!article.keywords) continue;
     for (const kw of article.keywords) {
       countMap.set(kw, (countMap.get(kw) ?? 0) + 1);
@@ -28,14 +27,14 @@ function buildGlobalCountMap(): Map<string, number> {
   return countMap;
 }
 
-function buildTagData(filterCategory: Category): TagData[] {
-  const globalCounts = buildGlobalCountMap();
+function buildTagData(filterCategory: Category, allArticles: Article[]): TagData[] {
+  const globalCounts = buildGlobalCountMap(allArticles);
   const map = new Map<string, TagData>();
 
   // 표시할 태그는 선택된 카테고리 기사 기준
   const articles = filterCategory === 'all'
-    ? MOCK_ARTICLES
-    : MOCK_ARTICLES.filter((a) => a.category === filterCategory);
+    ? allArticles
+    : allArticles.filter((a) => a.category === filterCategory);
 
   for (const article of articles) {
     if (!article.keywords) continue;
@@ -130,7 +129,14 @@ export default function TrendMapPage() {
     setSheet(tag);
   };
 
-  const tagData = buildTagData(category);
+  const [allArticles, setAllArticles] = useState<Article[]>([]);
+
+  // 마운트 시 전체 기사 한 번만 fetch (카테고리 필터는 client-side)
+  useEffect(() => {
+    fetchAllArticles().then(setAllArticles);
+  }, []);
+
+  const tagData = buildTagData(category, allArticles);
 
   // 드래그 핸들러
   const onTouchStart = (e: React.TouchEvent) => {

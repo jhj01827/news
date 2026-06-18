@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Article, Category } from '@/lib/types';
-import { MOCK_ARTICLES } from '@/lib/mockData';
+import { fetchAllArticles, fetchArticlesByCategory } from '@/lib/articles';
 import CategoryTabs from '@/components/CategoryTabs';
 import FeedGrid from '@/components/FeedGrid';
 
@@ -14,28 +14,38 @@ export default function FeedPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // 카테고리 필터링 + 검색 필터링
+  const [allArticles, setAllArticles] = useState<Article[]>([]);
+
+  // 카테고리 변경 시 Supabase에서 fetch → 검색은 client-side 필터링
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
-    let filtered =
-      category === 'all'
-        ? MOCK_ARTICLES
-        : MOCK_ARTICLES.filter((a) => a.category === category);
 
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      filtered = filtered.filter((a) =>
-        a.hook_title.toLowerCase().includes(q)
-      );
+    const load = async () => {
+      const data =
+        category === 'all'
+          ? await fetchAllArticles()
+          : await fetchArticlesByCategory(category as Exclude<Category, 'all'>);
+
+      if (!cancelled) {
+        setAllArticles(data);
+        setLoading(false);
+      }
+    };
+
+    load();
+    return () => { cancelled = true; };
+  }, [category]);
+
+  // 검색 필터링 (fetch된 데이터 기반, client-side)
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setArticles(allArticles);
+      return;
     }
-
-    // 실제 API처럼 짧은 딜레이 시뮬레이션
-    const t = setTimeout(() => {
-      setArticles(filtered);
-      setLoading(false);
-    }, 250);
-    return () => clearTimeout(t);
-  }, [category, searchQuery]);
+    const q = searchQuery.toLowerCase();
+    setArticles(allArticles.filter((a) => a.hook_title.toLowerCase().includes(q)));
+  }, [searchQuery, allArticles]);
 
   const [isScrolled, setIsScrolled] = useState(false);
 

@@ -85,7 +85,12 @@ export default function CollectionPage() {
       {/* 빈 상태 */}
       {articles.length === 0 ? (
         <div className="empty-state">
-          <span className="empty-state-icon">◈</span>
+          <span className="empty-state-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 4h6a2 2 0 0 1 2 2v14l-5-3l-5 3v-14a2 2 0 0 1 2-2" />
+            </svg>
+          </span>
           <p className="empty-state-text">
             아직 저장한 트렌드가 없어요.<br />
             기사를 읽고 북마크해보세요.
