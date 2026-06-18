@@ -16,9 +16,23 @@ interface TagData {
   articles: Article[];
 }
 
+// 전체 기사 기준으로 태그별 전체 카운트를 먼저 계산
+function buildGlobalCountMap(): Map<string, number> {
+  const countMap = new Map<string, number>();
+  for (const article of MOCK_ARTICLES) {
+    if (!article.keywords) continue;
+    for (const kw of article.keywords) {
+      countMap.set(kw, (countMap.get(kw) ?? 0) + 1);
+    }
+  }
+  return countMap;
+}
+
 function buildTagData(filterCategory: Category): TagData[] {
+  const globalCounts = buildGlobalCountMap();
   const map = new Map<string, TagData>();
 
+  // 표시할 태그는 선택된 카테고리 기사 기준
   const articles = filterCategory === 'all'
     ? MOCK_ARTICLES
     : MOCK_ARTICLES.filter((a) => a.category === filterCategory);
@@ -27,13 +41,12 @@ function buildTagData(filterCategory: Category): TagData[] {
     if (!article.keywords) continue;
     for (const kw of article.keywords) {
       if (map.has(kw)) {
-        const entry = map.get(kw)!;
-        entry.count += 1;
-        entry.articles.push(article);
+        map.get(kw)!.articles.push(article);
       } else {
         map.set(kw, {
           keyword: kw,
-          count: 1,
+          // 버블 크기는 전체 카테고리 기준 카운트 사용
+          count: globalCounts.get(kw) ?? 1,
           category: article.category as Category,
           articles: [article],
         });
@@ -73,11 +86,11 @@ const POSITIONS = [
   { top: 56, left: 44 },
 ];
 
-function getBubbleSize(count: number, maxCount: number) {
-  const ratio = count / maxCount;
-  if (ratio >= 0.8) return { size: 96, fontSize: 13, fontWeight: 700 };
-  if (ratio >= 0.5) return { size: 82, fontSize: 12, fontWeight: 600 };
-  return { size: 70, fontSize: 11, fontWeight: 500 };
+// 3단계 고정 크기: large(3+개), medium(2개), small(1개)
+function getBubbleSize(count: number) {
+  if (count >= 3) return { size: 90, fontSize: 14, fontWeight: 700 };
+  if (count === 2) return { size: 70, fontSize: 12, fontWeight: 600 };
+  return { size: 52, fontSize: 11, fontWeight: 500 };
 }
 
 // ─── 메인 컴포넌트 ────────────────────────────────────────────────
@@ -88,14 +101,16 @@ export default function TrendMapPage() {
   const [sheet, setSheet] = useState<TagData | null>(null);
   const [sheetVisible, setSheetVisible] = useState(false);
   const sheetRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // 드래그-다운 닫기
   const dragStart = useRef<number | null>(null);
 
   useEffect(() => {
-    const handleScroll = () => setIsScrolled(window.scrollY > 20);
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
+    const el = containerRef.current ?? window as unknown as Element;
+    const handleScroll = () => setIsScrolled((el instanceof Window ? (el as unknown as Window).scrollY : (el as HTMLElement).scrollTop) > 20);
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    return () => el.removeEventListener('scroll', handleScroll);
   }, []);
 
   // sheet 열기 애니메이션
@@ -116,7 +131,6 @@ export default function TrendMapPage() {
   };
 
   const tagData = buildTagData(category);
-  const maxCount = tagData.length > 0 ? tagData[0].count : 1;
 
   // 드래그 핸들러
   const onTouchStart = (e: React.TouchEvent) => {
@@ -131,7 +145,7 @@ export default function TrendMapPage() {
   };
 
   return (
-    <div style={{ width: '100%', minHeight: '100vh', background: '#0A0A0F', position: 'relative', overflowX: 'hidden', paddingBottom: '96px' }}>
+    <div ref={containerRef} style={{ width: '100%', minHeight: '100%', background: '#0A0A0F', position: 'relative', overflowX: 'hidden', paddingBottom: '96px' }}>
 
       {/* ── 스티키 헤더 ── */}
       <header style={{
@@ -174,7 +188,7 @@ export default function TrendMapPage() {
           </span>
         </div>
 
-        <CategoryTabs active={category} onChange={(cat) => { setCategory(cat); window.scrollTo({ top: 0, behavior: 'smooth' }); setIsScrolled(false); }} />
+        <CategoryTabs active={category} onChange={(cat) => { setCategory(cat); containerRef.current?.scrollTo({ top: 0, behavior: 'smooth' }); setIsScrolled(false); }} />
       </header>
 
       {/* ── 버블 영역 ── */}
@@ -193,7 +207,7 @@ export default function TrendMapPage() {
 
         {tagData.slice(0, POSITIONS.length).map((tag, idx) => {
           const pos = POSITIONS[idx];
-          const { size, fontSize, fontWeight } = getBubbleSize(tag.count, maxCount);
+          const { size, fontSize, fontWeight } = getBubbleSize(tag.count);
           const floatClass = idx % 3 === 0 ? 'bubble-float' : idx % 3 === 1 ? 'bubble-float-delayed' : 'bubble-float-fast';
 
           return (
@@ -260,7 +274,7 @@ export default function TrendMapPage() {
         <div
           onClick={closeSheet}
           style={{
-            position: 'fixed',
+            position: 'absolute',
             inset: 0,
             background: 'rgba(0,0,0,0.5)',
             zIndex: 100,
@@ -277,12 +291,12 @@ export default function TrendMapPage() {
           onTouchStart={onTouchStart}
           onTouchEnd={onTouchEnd}
           style={{
-            position: 'fixed',
+            position: 'absolute',
             bottom: 0,
             left: 0,
             right: 0,
             zIndex: 101,
-            height: '62vh',
+            height: '62%',
             background: 'rgba(10,10,15,0.98)',
             borderRadius: '20px 20px 0 0',
             borderTop: '0.5px solid rgba(255,255,255,0.1)',

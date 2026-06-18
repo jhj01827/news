@@ -77,6 +77,7 @@ export default function BottomNav() {
               fontWeight: isActive ? 600 : 400,
               color: isActive ? '#FFFFFF' : '#8B8B9A',
               transition: 'color 0.2s ease',
+              whiteSpace: 'nowrap',
             }}>
               {label}
             </span>
