@@ -5,6 +5,7 @@ import { Article, Category } from '@/lib/types';
 import { fetchAllArticles, fetchArticlesByCategory } from '@/lib/articles';
 import CategoryTabs from '@/components/CategoryTabs';
 import FeedGrid from '@/components/FeedGrid';
+import { trackEvent } from '@/lib/mixpanel';
 
 export default function FeedPage() {
   const [category, setCategory] = useState<Category>('all');
@@ -15,6 +16,20 @@ export default function FeedPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const [allArticles, setAllArticles] = useState<Article[]>([]);
+
+  // Feed Viewed 이벤트 트래킹
+  useEffect(() => {
+    trackEvent('Feed Viewed');
+  }, []);
+
+  // Search Used 이벤트 트래킹 (1초 디바운스)
+  useEffect(() => {
+    if (!searchQuery.trim()) return;
+    const timer = setTimeout(() => {
+      trackEvent('Search Used', { query: searchQuery });
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   // 카테고리 변경 시 Supabase에서 fetch → 검색은 client-side 필터링
   useEffect(() => {

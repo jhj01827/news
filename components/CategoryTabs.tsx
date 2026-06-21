@@ -1,6 +1,7 @@
 'use client';
 
 import { CATEGORIES, Category } from '@/lib/types';
+import { trackEvent } from '@/lib/mixpanel';
 
 interface Props {
   active: Category;
@@ -15,7 +16,10 @@ export default function CategoryTabs({ active, onChange }: Props) {
           <button
             key={cat.key}
             className={`tab-pill${active === cat.key ? ' active' : ''}`}
-            onClick={() => onChange(cat.key)}
+            onClick={() => {
+              onChange(cat.key);
+              trackEvent('Category Filtered', { category: cat.key });
+            }}
             aria-label={cat.label}
           >
             {cat.label}

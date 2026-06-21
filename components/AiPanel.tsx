@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Article, ChatMessage } from '@/lib/types';
 import { addToCollection } from '@/lib/collection';
+import { trackEvent } from '@/lib/mixpanel';
 
 interface Props {
   article: Article;
@@ -102,6 +103,11 @@ export default function AiPanel({ article, isActive = false }: Props) {
   const send = async (customText?: string) => {
     const q = (typeof customText === 'string' ? customText : input).trim();
     if (!q || loading) return;
+
+    trackEvent('AI Question Asked', {
+      article_id: articleId,
+      question: q,
+    });
 
     const userMsg: ChatMessage = { role: 'user', content: q };
     setMessages((prev) => [...prev, userMsg]);

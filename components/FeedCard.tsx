@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Article } from '@/lib/types';
 import { getCategoryEmoji } from './CategoryFallback';
+import { trackEvent } from '@/lib/mixpanel';
 
 interface Props {
   article: Article;
@@ -17,6 +18,10 @@ export default function FeedCard({ article, index, category }: Props) {
   const emoji = getCategoryEmoji(article.category);
 
   const handleClick = () => {
+    trackEvent('Article Clicked', {
+      category: article.category,
+      title: article.hook_title,
+    });
     sessionStorage.setItem('brief_scroll', String(window.scrollY));
     sessionStorage.setItem('brief_cat', category);
     router.push(`/feed/${article.id}`);

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import CategoryTabs from '@/components/CategoryTabs';
 import { Category, Article } from '@/lib/types';
 import { fetchAllArticles } from '@/lib/articles';
+import { trackEvent } from '@/lib/mixpanel';
 
 // ─── 태그 빈도 계산 ───────────────────────────────────────────────
 interface TagData {
@@ -139,6 +140,7 @@ export default function TrendMapPage() {
 
   const handleBubbleClick = (tag: TagData) => {
     if (tag.articles.length === 0) return;
+    trackEvent('Trend Bubble Clicked', { keyword: tag.keyword });
     setSheet(tag);
   };
 
@@ -372,6 +374,10 @@ export default function TrendMapPage() {
                   key={article.id}
                   article={article}
                   onClick={() => {
+                    trackEvent('Article Clicked', {
+                      category: article.category,
+                      title: article.hook_title,
+                    });
                     closeSheet();
                     setTimeout(() => router.push(`/feed/${article.id}`), 50);
                   }}

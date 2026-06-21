@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Article } from '@/lib/types';
 import { isBookmarked, toggleCollection } from '@/lib/collection';
+import { trackEvent } from '@/lib/mixpanel';
 
 interface Props {
   article: Article;
@@ -35,6 +36,13 @@ export default function BookmarkButton({ article, isScrolled = false, variant = 
 
     // 다른 북마크 버튼의 상태를 실시간 동기화하기 위해 이벤트 발생
     window.dispatchEvent(new Event('collection-change'));
+
+    if (next) {
+      trackEvent('Article Bookmarked', {
+        category: article.category,
+        title: article.hook_title,
+      });
+    }
   };
 
   if (variant === 'wide') {
