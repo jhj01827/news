@@ -159,7 +159,7 @@ export async function GET(req: NextRequest) {
    - "hook_title": 반드시 영어 기사 제목을 한국어로 번역하고, 기획자·마케터의 이목을 끄는 실용적인 한국어 제목으로 작성해 주세요 (15~25자 내외). 절대 영어 제목을 그대로 유지하지 마십시오.
    - "summary": 한국어로 작성된 핵심 요약 본문으로, 다음 세부 사항을 반드시 준수해야 합니다:
      * 한국의 기획자 및 마케터가 읽기 쉽도록 비전문가 수준의 평이하고 단순한 구어체/대화체 한국어(존댓말 혹은 친근한 문체)로 작성하세요. 전문 용어(Jargon)는 배제하고 쉬운 단어로 풀어 쓰십시오.
-     * 공백 포함 최대 150자 이내로 간결하게 작성하세요.
+     * 공백 포함 300자에서 400자 사이로 작성해 주세요.
      * 반드시 완전한 문장으로 끝내야 하며, 절대 문장 중간에 끊어지거나 말줄임표로 끝나서는 안 됩니다.
    - "keywords": 반드시 한국어로 생성한 1~3개의 핵심 한글 키워드 태그가 담긴 배열이어야 합니다. 예: ["생성형 AI", "Z세대", "리테일테크"]
 `;
@@ -194,7 +194,7 @@ export async function GET(req: NextRequest) {
 
             // 파싱된 데이터 적용 또는 폴백(Fallback) 처리
             const hookTitle = parsed?.hook_title || headline;
-            const summaryContent = parsed?.summary || (bodyText ? bodyText.substring(0, 147) + '...' : '요약 정보가 제공되지 않습니다.');
+            const summaryContent = parsed?.summary || (bodyText ? bodyText.substring(0, 347) + '...' : '요약 정보가 제공되지 않습니다.');
             const articleTags = (parsed && Array.isArray(parsed.keywords)) 
               ? parsed.keywords 
               : (FALLBACK_TAGS[config.key] || [config.key]);
