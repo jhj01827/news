@@ -60,7 +60,6 @@ body {
 /* ── 중앙 정렬 앱 컨테이너 ── */
 .app-container {
   width: 100%;
-  max-width: 393px;
   background-color: var(--bg);
   height: 100dvh;
   position: relative;
@@ -201,8 +200,6 @@ body {
 /* ── 상세 페이지 스크롤 컨테이너 ── */
 .article-scroller {
   width: 100%;
-  max-width: 393px;
-  margin: 0 auto;
   height: 100dvh;
   display: flex;
   flex-direction: row;
@@ -214,7 +211,6 @@ body {
 .article-snap-item {
   scroll-snap-align: start;
   width: 100%;
-  max-width: 393px;
   flex-shrink: 0;
   height: 100dvh;
   overflow-y: auto;

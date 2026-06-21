@@ -15,7 +15,7 @@ const GRID_STYLE: React.CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(2, 1fr)',
   gap: '8px',
-  padding: '0 12px',
+  padding: '0 16px',
   width: '100%',
   marginTop: '16px',
 };

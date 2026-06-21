@@ -216,9 +216,7 @@ export default function TrendMapPage() {
       <div style={{
         position: 'relative',
         width: '100%',
-        maxWidth: '393px',
         height: 'calc(100vh - 170px)',
-        margin: '0 auto',
       }}>
         {tagData.length === 0 && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-disabled)', fontSize: 14 }}>
