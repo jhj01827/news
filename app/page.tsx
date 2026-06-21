@@ -43,7 +43,16 @@ export default function FeedPage() {
           : await fetchArticlesByCategory(category as Exclude<Category, 'all'>);
 
       if (!cancelled) {
-        setAllArticles(data);
+        const uniqueArticles: Article[] = [];
+        const seenTitles = new Set<string>();
+        for (const art of data) {
+          const trimmedTitle = art.hook_title.trim();
+          if (!seenTitles.has(trimmedTitle)) {
+            seenTitles.add(trimmedTitle);
+            uniqueArticles.push(art);
+          }
+        }
+        setAllArticles(uniqueArticles);
         setLoading(false);
       }
     };

@@ -199,6 +199,23 @@ export async function GET(req: NextRequest) {
               ? parsed.keywords 
               : (FALLBACK_TAGS[config.key] || [config.key]);
 
+            // DB에서 한 번 더 실시간으로 중복 체크 (Check if source_url already exists)
+            const { data: dbDup, error: dupCheckError } = await supabaseAdmin
+              .from('articles')
+              .select('id')
+              .eq('source_url', sourceUrl)
+              .maybeSingle();
+
+            if (dupCheckError) {
+              console.warn(`[Sync API] Error checking duplicate for ${sourceUrl}:`, dupCheckError.message);
+            }
+
+            if (dbDup) {
+              categoryReport.skipped++;
+              existingUrls.add(normalizeUrl(sourceUrl));
+              continue;
+            }
+
             // 4. Supabase DB에 저장 (RLS 우회를 위해 supabaseAdmin 사용, 컬럼명은 tags로 매핑)
             const { error: insertError } = await supabaseAdmin.from('articles').insert({
               category: config.key,
