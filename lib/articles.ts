@@ -34,13 +34,13 @@ export async function fetchAllArticles(): Promise<Article[]> {
 
     if (error) {
       console.error('[Supabase] fetchAllArticles error:', error.message);
-      return MOCK_ARTICLES;
+      return [];
     }
 
-    return data && data.length > 0 ? data.map(mapArticle) : MOCK_ARTICLES;
+    return data ? data.map(mapArticle) : [];
   } catch (e) {
     console.error('[Supabase] fetchAllArticles exception:', e);
-    return MOCK_ARTICLES;
+    return [];
   }
 }
 
@@ -58,15 +58,13 @@ export async function fetchArticlesByCategory(category: Exclude<Category, 'all'>
 
     if (error) {
       console.error('[Supabase] fetchArticlesByCategory error:', error.message);
-      return MOCK_ARTICLES.filter((a) => a.category === category);
+      return [];
     }
 
-    return data && data.length > 0
-      ? data.map(mapArticle)
-      : MOCK_ARTICLES.filter((a) => a.category === category);
+    return data ? data.map(mapArticle) : [];
   } catch (e) {
     console.error('[Supabase] fetchArticlesByCategory exception:', e);
-    return MOCK_ARTICLES.filter((a) => a.category === category);
+    return [];
   }
 }
 

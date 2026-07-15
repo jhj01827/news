@@ -43,7 +43,7 @@ export default function FeedGrid({ articles, loading, category, searchQuery }: P
             </>
           ) : (
             <>
-              아직 이 카테고리에 트렌드가 없어요.<br />곧 업데이트될 예정이에요.
+              표시할 뉴스가 없습니다.
             </>
           )}
         </p>
