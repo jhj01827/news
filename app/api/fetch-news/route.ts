@@ -319,6 +319,14 @@ export async function GET(req: NextRequest) {
     let ingestedCount = 0;
     let skippedIngestCount = 0;
 
+    if (forceParam) {
+      console.log('[Sync API] Force param detected. Clearing news_queue and articles to start fresh...');
+      // Clean queue (keep processing to avoid breaking running instances)
+      await supabaseAdmin.from('news_queue').delete().neq('status', 'processing');
+      // Clean articles
+      await supabaseAdmin.from('articles').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    }
+
     // Fetch existing urls from articles and queue to prevent duplicates
     const { data: existingArticles } = await supabaseAdmin.from('articles').select('source_url');
     const { data: existingQueue } = await supabaseAdmin.from('news_queue').select('url');
