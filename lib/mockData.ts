@@ -39,7 +39,7 @@ export const MOCK_ARTICLES: Article[] = [
   },
   {
     id: 'mock-4',
-    category: 'retail',
+    category: 'culture',
     hook_title: '팝업이 브랜드의 새 본점이 됐다',
     summary:
       '뉴욕, 런던, 서울의 MZ 브랜드들이 고정 매장 없이 팝업만으로 연간 수십억을 버는 사례가 늘고 있다. 임대료 부담이 없고 SNS 바이럴 효과는 더 크다는 전략적 판단이다. 팝업은 더 이상 실험적 채널이 아닌 주력 유통 전략이 됐다.',
@@ -63,7 +63,7 @@ export const MOCK_ARTICLES: Article[] = [
   },
   {
     id: 'mock-6',
-    category: 'meme',
+    category: 'social',
     hook_title: '이 밈, 마케터라면 알아야 한다',
     summary:
       '2025년 상반기를 강타한 "Brain Rot" 밈 문화가 광고 업계로 스며들기 시작했다. Duolingo, Ryanair 등 글로벌 브랜드들이 의도적으로 저품질·과장된 유머를 소셜 미디어 전략에 녹이고 있다. 진지한 브랜딩보다 공감 가는 밈 하나가 더 큰 바이럴 효과를 낸다는 게 입증됐다.',

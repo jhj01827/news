@@ -3,9 +3,8 @@ export type Category =
   | 'tech'
   | 'beauty'
   | 'fashion'
-  | 'retail'
   | 'culture'
-  | 'meme';
+  | 'social';
 
 export interface Article {
   id: string;
@@ -30,7 +29,6 @@ export const CATEGORIES: { key: Category; label: string; emoji: string }[] = [
   { key: 'tech',    label: '테크',   emoji: '💻' },
   { key: 'beauty',  label: '뷰티',   emoji: '💄' },
   { key: 'fashion', label: '패션',   emoji: '👗' },
-  { key: 'retail',  label: '리테일', emoji: '🛍️' },
   { key: 'culture', label: '컬처',   emoji: '🌍' },
-  { key: 'meme',    label: '밈',     emoji: '😂' },
+  { key: 'social',  label: '소셜',   emoji: '📱' },
 ];
