@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { supabaseAdmin } from '@/lib/supabase';
 
 export const runtime = 'nodejs';
+export const maxDuration = 60; // 60 seconds timeout on Vercel
 
 // ─────────────────────────────────────────────────────────────
 // 1. RSS FEED CONFIG
@@ -173,7 +174,74 @@ async function fetchRssFeed(feedUrl: string, limit: number): Promise<RssItem[]> 
 }
 
 // ─────────────────────────────────────────────────────────────
-// 5. MAIN HANDLER
+// 5. FETCH ARTICLE WEBPAGE DATA (og:image & full text)
+// ─────────────────────────────────────────────────────────────
+interface PageData {
+  imageUrl: string | null;
+  content: string | null;
+}
+
+async function fetchPageData(articleUrl: string): Promise<PageData> {
+  try {
+    const res = await fetch(articleUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      signal: AbortSignal.timeout(8000), // 8 seconds timeout
+    });
+    if (!res.ok) return { imageUrl: null, content: null };
+
+    const html = await res.text();
+
+    // 1. Image extraction (og:image / twitter:image)
+    let imageUrl: string | null = null;
+    const ogM = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)
+      || html.match(/<meta[^>]+content=["']([^"']+)["']/i) && html.match(/<meta[^>]+property=["']og:image["']/i);
+    if (ogM) {
+      imageUrl = ogM[1];
+    } else {
+      const twM = html.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i)
+        || html.match(/<meta[^>]+content=["']([^"']+)["']/i) && html.match(/<meta[^>]+name=["']twitter:image["']/i);
+      if (twM) imageUrl = twM[1];
+    }
+
+    // 2. Text extraction
+    let bodyHtml = html;
+    const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    if (bodyMatch) {
+      bodyHtml = bodyMatch[1];
+    }
+
+    // Remove scripts, styles, and structural boilerplate
+    bodyHtml = bodyHtml
+      .replace(/<script[^>]*>([\s\S]*?)<\/script>/gi, ' ')
+      .replace(/<style[^>]*>([\s\S]*?)<\/style>/gi, ' ')
+      .replace(/<header[^>]*>([\s\S]*?)<\/header>/gi, ' ')
+      .replace(/<footer[^>]*>([\s\S]*?)<\/footer>/gi, ' ')
+      .replace(/<nav[^>]*>([\s\S]*?)<\/nav>/gi, ' ')
+      .replace(/<noscript[^>]*>([\s\S]*?)<\/noscript>/gi, ' ');
+
+    const cleanText = bodyHtml
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    return { imageUrl, content: cleanText.slice(0, 3500) || null };
+  } catch (e) {
+    console.error(`[fetchPageData] Error fetching ${articleUrl}:`, e);
+    return { imageUrl: null, content: null };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 6. MAIN HANDLER
 // ─────────────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   try {
@@ -241,8 +309,24 @@ export async function GET(req: NextRequest) {
             continue;
           }
 
+          let finalImageUrl = item.imageUrl;
+          let finalContent = item.description;
+
+          // If RSS image is missing or content is very short (< 600 chars), fetch the article page for better data
+          if (!finalImageUrl || finalContent.length < 600) {
+            console.log(`[Sync API] Fetching page data for: ${sourceUrl}`);
+            const pageData = await fetchPageData(sourceUrl);
+            if (pageData.imageUrl) {
+              finalImageUrl = pageData.imageUrl;
+            }
+            if (pageData.content && pageData.content.length > finalContent.length) {
+              finalContent = pageData.content;
+            }
+          }
+
           // Skip articles without images entirely
-          if (!item.imageUrl) {
+          if (!finalImageUrl) {
+            console.log(`[Sync API] No unique image found, skipping: ${item.title}`);
             feedReport.no_image++;
             continue;
           }
@@ -277,7 +361,7 @@ export async function GET(req: NextRequest) {
    - "tags": skip이 false일 때만 작성. 한국어로 생성한 1~3개의 핵심 한글 키워드 태그 배열. skip이 true이면 빈 배열([]).`;
 
           const userContent = `기사 제목: ${item.title}
-본문 내용: ${item.description}`;
+본문 내용: ${finalContent}`;
 
           try {
             const claudeResponse = await anthropic.messages.create({
@@ -361,13 +445,13 @@ export async function GET(req: NextRequest) {
               if (!isNaN(d.getTime())) publishedAt = d.toISOString();
             }
 
-            // Insert — image guaranteed non-null (checked above)
+            // Insert — image guaranteed non-null
             const { error: insertError } = await supabaseAdmin.from('articles').insert({
               category: finalCategory,
               hook_title: hookTitle,
               summary: summaryContent,
               background: backgroundContent,
-              image_url: item.imageUrl,
+              image_url: finalImageUrl,
               source_url: sourceUrl,
               source_name: feed.sourceName,
               tags: articleTags,
