@@ -183,7 +183,7 @@ function parseRss(xml: string, limit: number): RssItem[] {
     if (linkM) {
       link = extractCdata(linkM[1]);
     } else {
-      const linkAttrM = block.match(/<link[^>]+href=["']([^"']+)["']/i);
+      const linkAttrM = block.match(/<link[^+]+href=["']([^"']+)["']/i) || block.match(/<link[^>]+href=["']([^"']+)["']/i);
       if (linkAttrM) link = linkAttrM[1];
     }
     if (!link) continue;
@@ -439,7 +439,7 @@ export async function GET(req: NextRequest) {
      * 기사에 나온 구체적인 수치, 브랜드명, 인물명, 전략명, 캠페인명을 1~2개 이상 직접 언급하세요. 막연한 표현("일부 브랜드", "여러 기업") 대신 실제 이름을 쓰세요.
      * 마치 트렌드를 잘 아는 동료가 "야, 이거 봤어?" 하는 톤으로 핵심만 전달하세요.
      * 나쁜 예: "패션 산업으로의 진입이 점점 어려워지고 있는 가운데, 이 기사는 신입들이 업계 문을 열 수 있는 방법들을 소개합니다."
-     * 좋은 예: "포트폴리오 대신 SNS 팔로워를 보여주는 시대. 보그 편집장 출신 멘토 연결 플랫폼 'The Intern', 링크드인보다 인스타그램 DM이 더 잘 통한다는 현직자 조언이 눈길을 끈다."
+     * 좋은 예: "포트폴리오 대신 SNS 팔로워를 보여주는 시대. 보그 편집장 출신 멘토 연결 플랫폼 'The Intern', 링크드인보다 인스타그램 DM이 더 잘 통한다는 현직자 조언이 눈길을 억누른다."
      * 공백 포함 250~350자 사이. 반드시 완전한 문장으로 끝내야 하며 말줄임표로 끝나서는 안 됩니다. skip이 true이면 빈 문자열("").
    - "background": skip이 false일 때만 작성. 한국 독자가 모를 수 있는 문화적 맥락, 브랜드 배경, 시장 구조를 1~2문장으로 설명. skip이 true이면 빈 문자열("").
    - "tags": skip이 false일 때만 작성. 한국어로 생성한 1~3개의 핵심 한글 키워드 태그 배열. skip이 true이면 빈 배열([]).`;
