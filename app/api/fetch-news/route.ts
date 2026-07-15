@@ -4,59 +4,150 @@ import { supabaseAdmin } from '@/lib/supabase';
 
 export const runtime = 'nodejs';
 
+// ─────────────────────────────────────────────────────────────
+// 1. RSS FEED CONFIG
+// ─────────────────────────────────────────────────────────────
+interface FeedConfig {
+  key: 'tech' | 'beauty' | 'fashion' | 'culture' | 'meme' | 'retail';
+  sourceName: string;
+  url: string;
+}
+
+const RSS_FEEDS: FeedConfig[] = [
+  { key: 'tech',    sourceName: 'TechCrunch',    url: 'https://techcrunch.com/feed/' },
+  { key: 'fashion', sourceName: 'Hypebeast',     url: 'https://hypebeast.com/feed' },
+  { key: 'beauty',  sourceName: 'BeautyMatter',  url: 'https://beautymatter.com/feed/' },
+  { key: 'retail',  sourceName: 'Adweek',        url: 'https://www.adweek.com/feed/' },
+  { key: 'culture', sourceName: 'Pitchfork',     url: 'https://pitchfork.com/rss/news/' },
+  { key: 'meme',    sourceName: 'Mashable',      url: 'https://mashable.com/feeds/rss/all' },
+];
+
+const FALLBACK_TAGS: Record<string, string[]> = {
+  tech:    ['테크', 'IT', '기술'],
+  beauty:  ['뷰티', '뷰티트렌드', '스킨케어'],
+  fashion: ['패션', '트렌드', '스타일'],
+  retail:  ['리테일', '비즈니스', '마케팅'],
+  culture: ['컬처', '문화', '트렌드'],
+  meme:    ['밈', '인터넷문화', '트렌드'],
+};
+
+// ─────────────────────────────────────────────────────────────
+// 2. URL NORMALIZATION (duplicate prevention)
+// ─────────────────────────────────────────────────────────────
 function normalizeUrl(urlStr: string): string {
   try {
     const url = new URL(urlStr);
     let path = url.pathname;
-    if (path.endsWith('/')) {
-      path = path.slice(0, -1);
-    }
+    if (path.endsWith('/')) path = path.slice(0, -1);
     return (url.hostname + path).toLowerCase();
-  } catch (e) {
+  } catch {
     return urlStr.trim().toLowerCase();
   }
 }
 
-const FALLBACK_TAGS: Record<string, string[]> = {
-  tech: ['테크', 'IT', '기술'],
-  beauty: ['뷰티', '뷰티트렌드', '스킨케어'],
-  fashion: ['패션', '트렌드', '스타일'],
-  retail: ['리테일', '비즈니스', '유통'],
-  culture: ['컬처', '문화', '트렌드'],
-  meme: ['밈', '인터넷문화', '트렌드'],
-};
-
-interface CategoryConfig {
-  key: 'tech' | 'beauty' | 'fashion' | 'retail' | 'culture' | 'meme';
-  section: string;
-  q?: string;
+// ─────────────────────────────────────────────────────────────
+// 3. RSS XML PARSER
+// ─────────────────────────────────────────────────────────────
+interface RssItem {
+  title: string;
+  link: string;
+  imageUrl: string | null;
+  pubDate: string | null;
+  description: string;
 }
 
-const CATEGORIES_CONFIG: CategoryConfig[] = [
-  { key: 'tech', section: 'technology' },
-  { key: 'beauty', section: 'fashion', q: 'beauty' },
-  { key: 'fashion', section: 'fashion', q: 'clothing OR trends OR style' },
-  { key: 'retail', section: 'business', q: 'retail OR commerce OR shopping' },
-  { key: 'culture', section: 'culture' },
-  { key: 'meme', section: 'culture', q: 'meme OR viral OR "internet culture"' },
-];
+function extractCdata(raw: string): string {
+  return raw.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').trim();
+}
 
+function parseRss(xml: string, limit: number): RssItem[] {
+  const items: RssItem[] = [];
+
+  // Split into <item> blocks
+  const itemRegex = /<item[\s>]([\s\S]*?)<\/item>/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = itemRegex.exec(xml)) !== null && items.length < limit) {
+    const block = match[1];
+
+    // title
+    const titleM = block.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    const title = titleM ? extractCdata(titleM[1]) : '';
+    if (!title) continue;
+
+    // link — prefer <link> text node over CDATA; some feeds use <link href="...">
+    let link = '';
+    const linkM = block.match(/<link[^>]*>([\s\S]*?)<\/link>/i);
+    if (linkM) {
+      link = extractCdata(linkM[1]);
+    } else {
+      const linkAttrM = block.match(/<link[^>]+href=["']([^"']+)["']/i);
+      if (linkAttrM) link = linkAttrM[1];
+    }
+    if (!link) continue;
+
+    // image — try media:content first, then enclosure, then og:image in description
+    let imageUrl: string | null = null;
+
+    const mediaM = block.match(/<media:content[^>]+url=["']([^"']+)["']/i);
+    if (mediaM) {
+      imageUrl = mediaM[1];
+    } else {
+      const enclosureM = block.match(/<enclosure[^>]+url=["']([^"']+)["']/i);
+      if (enclosureM) {
+        imageUrl = enclosureM[1];
+      } else {
+        // try <media:thumbnail>
+        const thumbM = block.match(/<media:thumbnail[^>]+url=["']([^"']+)["']/i);
+        if (thumbM) imageUrl = thumbM[1];
+      }
+    }
+
+    // pubDate
+    const pubM = block.match(/<pubDate[^>]*>([\s\S]*?)<\/pubDate>/i);
+    const pubDate = pubM ? extractCdata(pubM[1]).trim() : null;
+
+    // description / content:encoded (for summary text)
+    const contentM =
+      block.match(/<content:encoded[^>]*>([\s\S]*?)<\/content:encoded>/i) ||
+      block.match(/<description[^>]*>([\s\S]*?)<\/description>/i);
+    const rawDesc = contentM ? extractCdata(contentM[1]) : '';
+    // Strip HTML tags from description
+    const description = rawDesc.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 3000);
+
+    items.push({ title, link, imageUrl, pubDate, description });
+  }
+
+  return items;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 4. FETCH RSS
+// ─────────────────────────────────────────────────────────────
+async function fetchRssFeed(feedUrl: string, limit: number): Promise<RssItem[]> {
+  const res = await fetch(feedUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (compatible; BriefBot/1.0)',
+      'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+    },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw new Error(`RSS fetch error: ${res.status} ${res.statusText}`);
+  const xml = await res.text();
+  return parseRss(xml, limit);
+}
+
+// ─────────────────────────────────────────────────────────────
+// 5. MAIN HANDLER
+// ─────────────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   try {
     const limitParam = req.nextUrl.searchParams.get('limit');
     const forceParam = req.nextUrl.searchParams.get('force') === 'true';
-    const pageSize = limitParam ? parseInt(limitParam, 10) : 5; // default page-size is 5
+    const pageSize = limitParam ? parseInt(limitParam, 10) : 5;
 
-    const guardianApiKey = process.env.GUARDIAN_API_KEY;
     const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
     const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!guardianApiKey) {
-      return NextResponse.json(
-        { error: 'GUARDIAN_API_KEY environment variable is not set.' },
-        { status: 500 }
-      );
-    }
 
     if (!anthropicApiKey) {
       return NextResponse.json(
@@ -72,7 +163,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // 1. Supabase에서 기존 기사의 source_url 목록을 조회해 중복 방지 캐시로 사용 (RLS 우회하는 Admin 클라이언트 사용)
+    // Fetch existing source_urls from Supabase (duplicate prevention)
     const { data: existingArticles, error: dbError } = await supabaseAdmin
       .from('articles')
       .select('source_url');
@@ -86,12 +177,12 @@ export async function GET(req: NextRequest) {
     }
 
     const existingUrls = new Set<string>(
-      existingArticles ? existingArticles.map((a: { source_url: string }) => normalizeUrl(a.source_url)) : []
+      existingArticles
+        ? existingArticles.map((a: { source_url: string }) => normalizeUrl(a.source_url))
+        : []
     );
 
-    const anthropic = new Anthropic({
-      apiKey: anthropicApiKey,
-    });
+    const anthropic = new Anthropic({ apiKey: anthropicApiKey });
 
     const report: {
       category: string;
@@ -103,10 +194,10 @@ export async function GET(req: NextRequest) {
       errors: string[];
     }[] = [];
 
-    // 2. 카테고리별로 Guardian API에서 최신 기사 가져오기
-    for (const config of CATEGORIES_CONFIG) {
+    // ── Process each RSS feed ────────────────────────────────
+    for (const feed of RSS_FEEDS) {
       const categoryReport = {
-        category: config.key,
+        category: feed.key,
         fetched: 0,
         processed: 0,
         inserted: 0,
@@ -116,29 +207,13 @@ export async function GET(req: NextRequest) {
       };
 
       try {
-        const guardianUrl = new URL('https://content.guardianapis.com/search');
-        guardianUrl.searchParams.append('api-key', guardianApiKey);
-        guardianUrl.searchParams.append('section', config.section);
-        if (config.q) {
-          guardianUrl.searchParams.append('q', config.q);
-        }
-        guardianUrl.searchParams.append('show-fields', 'headline,bodyText,thumbnail,shortUrl');
-        guardianUrl.searchParams.append('page-size', pageSize.toString()); // 호출당 가져오는 기사 개수
-        guardianUrl.searchParams.append('order-by', 'newest');
+        const rssItems = await fetchRssFeed(feed.url, pageSize);
+        categoryReport.fetched = rssItems.length;
 
-        const guardianRes = await fetch(guardianUrl.toString());
-        if (!guardianRes.ok) {
-          throw new Error(`Guardian API error: ${guardianRes.status} ${guardianRes.statusText}`);
-        }
+        for (const item of rssItems) {
+          const sourceUrl = item.link;
 
-        const guardianData = await guardianRes.json();
-        const results = guardianData.response?.results || [];
-        categoryReport.fetched = results.length;
-
-        for (const article of results) {
-          const sourceUrl = article.webUrl;
-
-          // 이미 저장된 기사이면 스킵 (forceParam이 true가 아닐 때만)
+          // Skip already-saved articles (unless force=true)
           if (!forceParam && existingUrls.has(normalizeUrl(sourceUrl))) {
             categoryReport.skipped++;
             continue;
@@ -146,40 +221,42 @@ export async function GET(req: NextRequest) {
 
           categoryReport.processed++;
 
-          const headline = article.fields?.headline || article.webTitle || '';
-          const bodyText = article.fields?.bodyText || '';
-          const truncatedBody = bodyText.substring(0, 4000); // 프롬프트 토큰 조절을 위해 본문 단축
-
-          // 3. Claude를 사용하여 한글 요약 및 메타 정보 생성
-          const systemPrompt = `당신은 트렌드 및 기획 전문 매체 BRIEF의 AI 편집장입니다. 기획자, 마케터, 비즈니스 리더들을 위해 영어 뉴스 기사를 바탕으로 가치 있는 한국어 트렌드 요약 및 키워드를 작성해 주세요.
+          // ── Claude: translate + summarize + background ─────
+          const systemPrompt = `당신은 트렌드 및 기획 전문 매체 BRIEF의 AI 편집장입니다. 기획자, 마케터, 비즈니스 리더들을 위해 영어 뉴스 기사를 바탕으로 한국어 트렌드 요약과 배경 지식을 작성해 주세요.
 
 반드시 다음 규칙을 지키십시오:
-1. 응답은 오직 JSON 형식으로만 반환해야 합니다. 마크다운 백틱 (\`\`\`json ...)이나 부연 설명 없이, 오직 JSON 문자열만 응답하세요.
-2. JSON 구조는 반드시 다음 필드들을 포함해야 합니다:
-   - "hook_title": 반드시 영어 기사 제목을 한국어로 번역하고, 기획자·마케터의 이목을 끄는 실용적인 한국어 제목으로 작성해 주세요 (15~25자 내외). 절대 영어 제목을 그대로 유지하지 마십시오.
-   - "summary": 한국어로 작성된 핵심 요약 본문으로, 다음 세부 사항을 반드시 준수해야 합니다:
-     * 한국의 기획자 및 마케터가 읽기 쉽도록 비전문가 수준의 평이하고 단순한 구어체/대화체 한국어(존댓말 혹은 친근한 문체)로 작성하세요. 전문 용어(Jargon)는 배제하고 쉬운 단어로 풀어 쓰십시오.
-     * 공백 포함 300자에서 400자 사이로 작성해 주세요.
-     * 반드시 완전한 문장으로 끝내야 하며, 절대 문장 중간에 끊어지거나 말줄임표로 끝나서는 안 됩니다.
-   - "keywords": 반드시 한국어로 생성한 1~3개의 핵심 한글 키워드 태그가 담긴 배열이어야 합니다. 예: ["생성형 AI", "Z세대", "리테일테크"]
-`;
+1. 응답은 오직 JSON 형식으로만 반환해야 합니다. 마크다운 백틱(\`\`\`json ...)이나 부연 설명 없이, 오직 JSON 문자열만 응답하세요.
+2. JSON 구조는 반드시 다음 4개의 필드를 포함해야 합니다:
+   - "hook_title": 영어 제목을 한국어로 번역하여, 기획자·마케터의 이목을 끄는 실용적인 한국어 제목으로 작성 (15~25자 내외). 절대 영어 제목을 그대로 유지하지 마십시오.
+   - "summary": 한국어로 작성된 핵심 요약 본문. 비전문가 수준의 평이하고 단순한 구어체·대화체 한국어로 작성하세요. 공백 포함 300~400자 사이로 작성. 반드시 완전한 문장으로 끝내야 하며 절대 문장 중간에 끊어지거나 말줄임표로 끝나서는 안 됩니다.
+   - "background": 한국 독자가 모를 수 있는 문화적 맥락, 브랜드 배경, 시장 구조를 1~2문장으로 설명하는 번역자 주석 형식의 배경 지식. 기사에 등장하는 브랜드·인물·플랫폼·문화적 현상이 무엇인지, 왜 중요한지 쉽게 설명하세요. (예: "TechCrunch는 2005년 창간된 실리콘밸리 중심의 IT 전문 미디어로, 스타트업 투자 및 빅테크 동향을 가장 먼저 보도하는 매체입니다.")
+   - "tags": 반드시 한국어로 생성한 1~3개의 핵심 한글 키워드 태그가 담긴 배열. 예: ["생성형 AI", "Z세대", "리테일테크"]`;
 
-          const userContent = `기사 제목: ${headline}
-본문 내용: ${truncatedBody}`;
+          const userContent = `기사 제목: ${item.title}
+본문 내용: ${item.description}`;
 
           try {
             const claudeResponse = await anthropic.messages.create({
               model: 'claude-haiku-4-5-20251001',
-              max_tokens: 600,
+              max_tokens: 700,
               system: systemPrompt,
               messages: [{ role: 'user', content: userContent }],
               temperature: 0.2,
             });
 
-            const text = claudeResponse.content[0].type === 'text' ? claudeResponse.content[0].text : '';
-            
-            // JSON 응답 파싱 시도 (Regex로 '{' 와 '}' 사이를 추출하여 파싱)
-            let parsed: { hook_title?: string; summary?: string; keywords?: string[] } | null = null;
+            const text =
+              claudeResponse.content[0].type === 'text'
+                ? claudeResponse.content[0].text
+                : '';
+
+            // Parse JSON response
+            let parsed: {
+              hook_title?: string;
+              summary?: string;
+              background?: string;
+              tags?: string[];
+            } | null = null;
+
             try {
               const jsonMatch = text.match(/\{[\s\S]*\}/);
               if (jsonMatch) {
@@ -187,19 +264,26 @@ export async function GET(req: NextRequest) {
               } else {
                 throw new Error('No JSON object found in Claude response');
               }
-            } catch (jsonErr: any) {
-              console.warn(`[Sync API] Failed to parse Claude output as JSON for article ${sourceUrl}:`, text, jsonErr.message);
-              // JSON 파싱 실패시 null로 두어 폴백을 타게 함
+            } catch (jsonErr: unknown) {
+              console.warn(
+                `[Sync API] Failed to parse Claude output for ${sourceUrl}:`,
+                text,
+                (jsonErr as Error).message
+              );
             }
 
-            // 파싱된 데이터 적용 또는 폴백(Fallback) 처리
-            const hookTitle = parsed?.hook_title || headline;
-            const summaryContent = parsed?.summary || (bodyText ? bodyText.substring(0, 347) + '...' : '요약 정보가 제공되지 않습니다.');
-            const articleTags = (parsed && Array.isArray(parsed.keywords)) 
-              ? parsed.keywords 
-              : (FALLBACK_TAGS[config.key] || [config.key]);
+            const hookTitle = parsed?.hook_title || item.title;
+            const summaryContent =
+              parsed?.summary ||
+              (item.description
+                ? item.description.substring(0, 347) + '...'
+                : '요약 정보가 제공되지 않습니다.');
+            const backgroundContent = parsed?.background || null;
+            const articleTags = parsed && Array.isArray(parsed.tags)
+              ? parsed.tags
+              : FALLBACK_TAGS[feed.key] || [feed.key];
 
-            // DB에서 한 번 더 실시간으로 중복 체크 (Check if source_url already exists)
+            // Realtime duplicate check
             const { data: dbDup, error: dupCheckError } = await supabaseAdmin
               .from('articles')
               .select('id')
@@ -207,7 +291,10 @@ export async function GET(req: NextRequest) {
               .maybeSingle();
 
             if (dupCheckError) {
-              console.warn(`[Sync API] Error checking duplicate for ${sourceUrl}:`, dupCheckError.message);
+              console.warn(
+                `[Sync API] Error checking duplicate for ${sourceUrl}:`,
+                dupCheckError.message
+              );
             }
 
             if (dbDup) {
@@ -216,16 +303,24 @@ export async function GET(req: NextRequest) {
               continue;
             }
 
-            // 4. Supabase DB에 저장 (RLS 우회를 위해 supabaseAdmin 사용, 컬럼명은 tags로 매핑)
+            // Parse pubDate
+            let publishedAt = new Date().toISOString();
+            if (item.pubDate) {
+              const parsed = new Date(item.pubDate);
+              if (!isNaN(parsed.getTime())) publishedAt = parsed.toISOString();
+            }
+
+            // Insert into Supabase
             const { error: insertError } = await supabaseAdmin.from('articles').insert({
-              category: config.key,
+              category: feed.key,
               hook_title: hookTitle,
               summary: summaryContent,
-              image_url: article.fields?.thumbnail || null,
+              background: backgroundContent,
+              image_url: item.imageUrl || null,
               source_url: sourceUrl,
-              source_name: 'The Guardian',
+              source_name: feed.sourceName,
               tags: articleTags,
-              published_at: article.webPublicationDate || new Date().toISOString(),
+              published_at: publishedAt,
             });
 
             if (insertError) {
@@ -233,16 +328,24 @@ export async function GET(req: NextRequest) {
             }
 
             categoryReport.inserted++;
-            existingUrls.add(normalizeUrl(sourceUrl)); // 이번 배치 내 중복 추가 방지
-          } catch (itemErr: any) {
-            console.error(`[Sync API] Failed to process article ${sourceUrl}:`, itemErr.message);
+            existingUrls.add(normalizeUrl(sourceUrl));
+          } catch (itemErr: unknown) {
+            console.error(
+              `[Sync API] Failed to process article ${sourceUrl}:`,
+              (itemErr as Error).message
+            );
             categoryReport.failed++;
-            categoryReport.errors.push(`${headline.substring(0, 30)}...: ${itemErr.message}`);
+            categoryReport.errors.push(
+              `${item.title.substring(0, 30)}...: ${(itemErr as Error).message}`
+            );
           }
         }
-      } catch (catErr: any) {
-        console.error(`[Sync API] Category ${config.key} fetch/process error:`, catErr.message);
-        categoryReport.errors.push(`Category level error: ${catErr.message}`);
+      } catch (catErr: unknown) {
+        console.error(
+          `[Sync API] RSS feed ${feed.key} error:`,
+          (catErr as Error).message
+        );
+        categoryReport.errors.push(`Feed error: ${(catErr as Error).message}`);
       }
 
       report.push(categoryReport);
@@ -253,10 +356,10 @@ export async function GET(req: NextRequest) {
       timestamp: new Date().toISOString(),
       summary: report,
     });
-  } catch (globalErr: any) {
+  } catch (globalErr: unknown) {
     console.error('[Sync API] Global execution error:', globalErr);
     return NextResponse.json(
-      { error: `Internal server error: ${globalErr.message}` },
+      { error: `Internal server error: ${(globalErr as Error).message}` },
       { status: 500 }
     );
   }

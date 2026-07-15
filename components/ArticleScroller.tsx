@@ -240,6 +240,48 @@ function ArticleItem({
           </div>
         </div>
 
+
+        <div className="divider" />
+
+        {/* 배경 지식 */}
+        {article.background && (
+          <div
+            style={{
+              padding: '12px 14px',
+              borderRadius: 12,
+              background: 'rgba(255,255,255,0.03)',
+              border: '0.5px solid rgba(255,255,255,0.07)',
+              marginBottom: 4,
+            }}
+          >
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                fontSize: 11,
+                fontWeight: 600,
+                color: '#A0A0B0',
+                letterSpacing: '0.3px',
+                marginBottom: 7,
+              }}
+            >
+              🌐 배경 지식
+            </span>
+            <p
+              style={{
+                fontSize: 13,
+                fontWeight: 400,
+                color: '#A0A0B0',
+                lineHeight: 1.7,
+                margin: 0,
+              }}
+            >
+              {article.background}
+            </p>
+          </div>
+        )}
+
         <div className="divider" />
 
         {/* AI 패널 */}
@@ -247,6 +289,7 @@ function ArticleItem({
           article={article}
           isActive={isActive}
         />
+
       </div>
     </div>
   );

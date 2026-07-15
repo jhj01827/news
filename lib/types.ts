@@ -12,6 +12,7 @@ export interface Article {
   category: Exclude<Category, 'all'>;
   hook_title: string;
   summary: string;
+  background?: string | null;
   image_url: string | null;
   source_url: string;
   source_name: string | null;
