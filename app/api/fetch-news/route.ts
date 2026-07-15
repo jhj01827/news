@@ -33,10 +33,12 @@ const RSS_FEEDS: FeedConfig[] = [
   { hint: 'culture', sourceName: 'Dazed',      url: 'https://www.dazeddigital.com/rss' },
   { hint: 'culture', sourceName: 'NME',        url: 'https://www.nme.com/feed' },
   // 소셜
-  { hint: 'social',  sourceName: 'Mashable',        url: 'https://mashable.com/feeds/rss/all' },
-  { hint: 'social',  sourceName: 'BuzzFeed',        url: 'https://www.buzzfeed.com/index.xml' },
-  { hint: 'social',  sourceName: 'Social Media Today', url: 'https://www.socialmediatoday.com/rss/' },
-  { hint: 'social',  sourceName: 'Sprout Social',   url: 'https://sproutsocial.com/insights/feed/' },
+  { hint: 'social',  sourceName: 'Social Media Examiner', url: 'https://www.socialmediaexaminer.com/feed/' },
+  { hint: 'social',  sourceName: 'Later',                 url: 'https://later.com/blog/feed/' },
+  { hint: 'social',  sourceName: 'Hootsuite',             url: 'https://www.hootsuite.com/resources/feed' },
+  { hint: 'social',  sourceName: 'Content Marketing Institute', url: 'https://contentmarketinginstitute.com/feed/' },
+  { hint: 'social',  sourceName: 'Search Engine Journal', url: 'https://www.searchenginejournal.com/feed/' },
+  { hint: 'social',  sourceName: 'Neil Patel',            url: 'https://neilpatel.com/blog/feed/' },
 ];
 
 const FALLBACK_TAGS: Record<ArticleCategory, string[]> = {
@@ -252,13 +254,13 @@ export async function GET(req: NextRequest) {
 
 반드시 다음 규칙을 지키십시오:
 1. 응답은 오직 JSON 형식으로만 반환해야 합니다. 마크다운 백틱(\`\`\`json ...)이나 부연 설명 없이, 오직 JSON 문자열만 응답하세요.
-2. 먼저 기사가 트렌드와 관련이 있는지 판단하십시오. 트렌드 관련 기사의 예시: 소비자 트렌드, 문화적 움직임, 마케팅 캠페인, 신제품/서비스 출시, 바이럴 현상, 패션·뷰티·테크 동향. 트렌드와 무관한 기사의 예시: 주가·금리 등 금융 수치, 정치·선거, 범죄·사건·사고, 재해·재난, 단순 인사이동.
+2. 먼저 기사가 트렌드와 관련이 있는지 판단하십시오. 트렌드 관련 기사의 예시: 소비자 트렌드, 문화적 움직임, 마케팅 캠페인, 신제품/서비스 출시, 바이럴 현상, 패션·뷰티·테크 동향, 소셜 미디어 플랫폼 업데이트, 크리에이터 이코노미 트렌드, 바이럴 마케팅 캠페인, 인플루언서 트렌드, 콘텐츠 전략. 트렌드와 무관한 기사의 예시: 주가·금리 등 금융 수치, 정치·선거, 범죄·사건·사고, 재해·재난, 단순 인사이동.
 3. 트렌드 관련 기사라면, 기사의 PRIMARY 주제를 기반으로 가장 정확한 카테고리를 직접 판단하세요:
    - "tech": 테크 제품, AI, 앱, 디지털 트렌드
    - "beauty": 스킨케어, 메이크업, 헤어케어, 뷰티 제품
    - "fashion": 의류, 액세서리, 스타일, 런웨이
    - "culture": 음악, 영화, 예술, 라이프스타일, 사회적 현상
-   - "social": 소셜미디어 플랫폼, 크리에이터 이코노미, 바이럴 트렌드, 밈, SNS 마케팅
+   - "social": 소셜 미디어 플랫폼 업데이트(Instagram, TikTok, YouTube 등), 크리에이터 이코노미 트렌드, 바이럴 마케팅 캠페인, 인플루언서 트렌드, 콘텐츠 전략
    출처 매체가 아닌 기사의 실제 내용을 기준으로 카테고리를 할당하세요.
 4. JSON 구조는 반드시 다음 6개의 필드를 포함해야 합니다:
    - "skip": 트렌드와 무관한 기사이면 true, 트렌드 관련 기사이면 false. (boolean)
