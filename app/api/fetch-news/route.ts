@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { supabaseAdmin } from '@/lib/supabase';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60; // 60 seconds timeout on Vercel
+export const maxDuration = 60; // 60 seconds timeout limit on Vercel
 
 // ─────────────────────────────────────────────────────────────
 // 1. RSS FEED CONFIG
@@ -51,6 +51,56 @@ const FALLBACK_TAGS: Record<ArticleCategory, string[]> = {
 };
 
 const VALID_CATEGORIES = new Set<string>(['tech', 'beauty', 'fashion', 'culture', 'social']);
+
+// Unique Unsplash images to prevent duplicates (5 per category)
+const FALLBACK_IMAGES: Record<ArticleCategory, string[]> = {
+  tech: [
+    'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800',
+    'https://images.unsplash.com/photo-1498050108023-c5249f4df085?w=800',
+    'https://images.unsplash.com/photo-1488590528505-98d2b5aba04b?w=800',
+    'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800',
+    'https://images.unsplash.com/photo-1519389950473-47ba0277781c?w=800',
+  ],
+  beauty: [
+    'https://images.unsplash.com/photo-1556228720-195a672e8a03?w=800',
+    'https://images.unsplash.com/photo-1596462502278-27bfdc403348?w=800',
+    'https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?w=800',
+    'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=800',
+    'https://images.unsplash.com/photo-1608248597481-496100c80836?w=800',
+  ],
+  fashion: [
+    'https://images.unsplash.com/photo-1558769132-cb1aea458c5e?w=800',
+    'https://images.unsplash.com/photo-1483985988355-763728e1935b?w=800',
+    'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=800',
+    'https://images.unsplash.com/photo-1509631179647-0177331693ae?w=800',
+    'https://images.unsplash.com/photo-1539109136881-3be0616acf4b?w=800',
+  ],
+  culture: [
+    'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=800',
+    'https://images.unsplash.com/photo-1460661419201-fd4cecdf8a8b?w=800',
+    'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=800',
+    'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=800',
+    'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=800',
+  ],
+  social: [
+    'https://images.unsplash.com/photo-1611162616475-46b635cb6868?w=800',
+    'https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=800',
+    'https://images.unsplash.com/photo-1611605698335-8b15d27e03f9?w=800',
+    'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=800',
+    'https://images.unsplash.com/photo-1614680376593-902f74fa0d41?w=800',
+  ],
+};
+
+// Deterministically select fallback image based on string hash
+function getFallbackImage(url: string, category: ArticleCategory): string {
+  const images = FALLBACK_IMAGES[category] || FALLBACK_IMAGES['tech'];
+  let hash = 0;
+  for (let i = 0; i < url.length; i++) {
+    hash = url.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % images.length;
+  return images[index];
+}
 
 // ─────────────────────────────────────────────────────────────
 // 2. URL NORMALIZATION
@@ -244,6 +294,11 @@ async function fetchPageData(articleUrl: string): Promise<PageData> {
 // 6. MAIN HANDLER
 // ─────────────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
+  const startTime = Date.now();
+  // Vercel serverless execution limit is 10s by default (Hobby).
+  // We leave a 2.5 second headroom to exit cleanly before 504 gateway timeout occurs.
+  const TIMEOUT_LIMIT = 7500; 
+
   try {
     const limitParam = req.nextUrl.searchParams.get('limit');
     const forceParam = req.nextUrl.searchParams.get('force') === 'true';
@@ -252,89 +307,118 @@ export async function GET(req: NextRequest) {
     const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
     const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    if (!anthropicApiKey) {
-      return NextResponse.json({ error: 'ANTHROPIC_API_KEY not set.' }, { status: 500 });
+    if (!anthropicApiKey || !supabaseServiceRoleKey) {
+      return NextResponse.json({ error: 'API key or Supabase credentials missing.' }, { status: 500 });
     }
-    if (!supabaseServiceRoleKey) {
-      return NextResponse.json({ error: 'SUPABASE_SERVICE_ROLE_KEY not set.' }, { status: 500 });
-    }
-
-    // Fetch existing source_urls for duplicate prevention
-    const { data: existingArticles, error: dbError } = await supabaseAdmin
-      .from('articles')
-      .select('source_url');
-
-    if (dbError) {
-      return NextResponse.json({ error: `Database error: ${dbError.message}` }, { status: 500 });
-    }
-
-    const existingUrls = new Set<string>(
-      existingArticles?.map((a: { source_url: string }) => normalizeUrl(a.source_url)) ?? []
-    );
 
     const anthropic = new Anthropic({ apiKey: anthropicApiKey });
 
-    const report: {
-      feed: string;
-      fetched: number;
-      processed: number;
-      inserted: number;
-      skipped: number;
-      no_image: number;
-      failed: number;
-      errors: string[];
-    }[] = [];
+    // ─────────────────────────────────────────────────────────
+    // PHASE 1: RSS INGESTION (Fast)
+    // ─────────────────────────────────────────────────────────
+    let ingestedCount = 0;
+    let skippedIngestCount = 0;
+
+    // Fetch existing urls from articles and queue to prevent duplicates
+    const { data: existingArticles } = await supabaseAdmin.from('articles').select('source_url');
+    const { data: existingQueue } = await supabaseAdmin.from('news_queue').select('url');
+
+    const processedUrls = new Set<string>([
+      ...(existingArticles?.map(a => normalizeUrl(a.source_url)) ?? []),
+      ...(existingQueue?.map(q => normalizeUrl(q.url)) ?? [])
+    ]);
 
     for (const feed of RSS_FEEDS) {
-      const feedReport = {
-        feed: feed.sourceName,
-        fetched: 0,
-        processed: 0,
-        inserted: 0,
-        skipped: 0,
-        no_image: 0,
-        failed: 0,
-        errors: [] as string[],
-      };
-
       try {
         const rssItems = await fetchRssFeed(feed.url, pageSize);
-        feedReport.fetched = rssItems.length;
-
         for (const item of rssItems) {
-          const sourceUrl = item.link;
-
-          if (!forceParam && existingUrls.has(normalizeUrl(sourceUrl))) {
-            feedReport.skipped++;
+          const normUrl = normalizeUrl(item.link);
+          if (processedUrls.has(normUrl)) {
+            skippedIngestCount++;
             continue;
           }
 
-          let finalImageUrl = item.imageUrl;
-          let finalContent = item.description;
+          // Insert raw item into queue
+          const { error: queueErr } = await supabaseAdmin.from('news_queue').insert({
+            url: item.link,
+            category: feed.hint,
+            title: item.title,
+            source_name: feed.sourceName,
+            pub_date: item.pubDate,
+            description: item.description,
+            image_url: item.imageUrl,
+            status: 'pending',
+            retry_count: 0
+          });
 
-          // If RSS image is missing or content is very short (< 600 chars), fetch the article page for better data
-          if (!finalImageUrl || finalContent.length < 600) {
-            console.log(`[Sync API] Fetching page data for: ${sourceUrl}`);
-            const pageData = await fetchPageData(sourceUrl);
-            if (pageData.imageUrl) {
-              finalImageUrl = pageData.imageUrl;
-            }
-            if (pageData.content && pageData.content.length > finalContent.length) {
-              finalContent = pageData.content;
-            }
+          if (!queueErr) {
+            ingestedCount++;
+            processedUrls.add(normUrl);
           }
+        }
+      } catch (feedErr: any) {
+        console.error(`[Ingestion] Failed for ${feed.sourceName}:`, feedErr.message);
+      }
+    }
 
-          // Skip articles without images entirely
-          if (!finalImageUrl) {
-            console.log(`[Sync API] No unique image found, skipping: ${item.title}`);
-            feedReport.no_image++;
-            continue;
+    // ─────────────────────────────────────────────────────────
+    // PHASE 2: QUEUE PROCESSING (Time-guarded & Batched)
+    // ─────────────────────────────────────────────────────────
+    let processedCount = 0;
+    let successCount = 0;
+    let failedCount = 0;
+    const errors: string[] = [];
+
+    while (Date.now() - startTime < TIMEOUT_LIMIT) {
+      // Get one pending article from queue
+      const { data: queueItem, error: fetchErr } = await supabaseAdmin
+        .from('news_queue')
+        .select('*')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (fetchErr || !queueItem) {
+        break; // No items in queue to process
+      }
+
+      processedCount++;
+      const sourceUrl = queueItem.url;
+
+      // Mark as processing immediately to prevent parallel execution conflicts
+      await supabaseAdmin
+        .from('news_queue')
+        .update({ status: 'processing', updated_at: new Date().toISOString() })
+        .eq('id', queueItem.id);
+
+      try {
+        let finalImageUrl = queueItem.image_url;
+        let finalContent = queueItem.description || '';
+
+        // Webpage fetch for better text and og:images if missing or teaser-only
+        if (!finalImageUrl || finalContent.length < 600) {
+          const pageData = await fetchPageData(sourceUrl);
+          if (pageData.imageUrl) {
+            finalImageUrl = pageData.imageUrl;
           }
+          if (pageData.content && pageData.content.length > finalContent.length) {
+            finalContent = pageData.content;
+          }
+        }
 
-          feedReport.processed++;
+        // CRITICAL CHECK: Ensure article body was scraped successfully
+        if (finalContent.length < 300) {
+          throw new Error('Article body scraping failed: Scraped content too short (< 300 chars).');
+        }
 
-          // ── Claude: filter + categorize + translate + summarize ─
-          const systemPrompt = `당신은 트렌드 및 기획 전문 매체 BRIEF의 AI 편집장입니다. 기획자, 마케터, 비즈니스 리더들을 위해 영어 뉴스 기사를 선별하고 한국어 트렌드 요약과 배경 지식을 작성해 주세요.
+        // Image fallback (guaranteed unique per article via hashing)
+        if (!finalImageUrl) {
+          finalImageUrl = getFallbackImage(sourceUrl, queueItem.category as ArticleCategory);
+        }
+
+        // Claude AI summarization
+        const systemPrompt = `당신은 트렌드 및 기획 전문 매체 BRIEF의 AI 편집장입니다. 기획자, 마케터, 비즈니스 리더들을 위해 영어 뉴스 기사를 선별하고 한국어 트렌드 요약과 배경 지식을 작성해 주세요.
 
 반드시 다음 규칙을 지키십시오:
 1. 응답은 오직 JSON 형식으로만 반환해야 합니다. 마크다운 백틱(\`\`\`json ...)이나 부연 설명 없이, 오직 JSON 문자열만 응답하세요.
@@ -360,132 +444,135 @@ export async function GET(req: NextRequest) {
    - "background": skip이 false일 때만 작성. 한국 독자가 모를 수 있는 문화적 맥락, 브랜드 배경, 시장 구조를 1~2문장으로 설명. skip이 true이면 빈 문자열("").
    - "tags": skip이 false일 때만 작성. 한국어로 생성한 1~3개의 핵심 한글 키워드 태그 배열. skip이 true이면 빈 배열([]).`;
 
-          const userContent = `기사 제목: ${item.title}
-본문 내용: ${finalContent}`;
+        const userContent = `기사 제목: ${queueItem.title}\n본문 내용: ${finalContent}`;
 
-          try {
-            const claudeResponse = await anthropic.messages.create({
-              model: 'claude-haiku-4-5-20251001',
-              max_tokens: 750,
-              system: systemPrompt,
-              messages: [{ role: 'user', content: userContent }],
-              temperature: 0.2,
-            });
+        const claudeResponse = await anthropic.messages.create({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 750,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userContent }],
+          temperature: 0.2,
+        });
 
-            const text =
-              claudeResponse.content[0].type === 'text'
-                ? claudeResponse.content[0].text
-                : '';
+        const text =
+          claudeResponse.content[0].type === 'text'
+            ? claudeResponse.content[0].text
+            : '';
 
-            let parsed: {
-              skip?: boolean;
-              category?: string;
-              hook_title?: string;
-              summary?: string;
-              background?: string;
-              tags?: string[];
-            } | null = null;
+        let parsed: {
+          skip?: boolean;
+          category?: string;
+          hook_title?: string;
+          summary?: string;
+          background?: string;
+          tags?: string[];
+        } | null = null;
 
-            try {
-              const jsonMatch = text.match(/\{[\s\S]*\}/);
-              if (jsonMatch) {
-                parsed = JSON.parse(jsonMatch[0]);
-              } else {
-                throw new Error('No JSON found in response');
-              }
-            } catch (jsonErr: unknown) {
-              console.warn(
-                `[Sync API] JSON parse failed for ${sourceUrl}:`,
-                (jsonErr as Error).message
-              );
-            }
-
-            // Skip non-trend articles
-            if (parsed?.skip === true) {
-              feedReport.skipped++;
-              continue;
-            }
-
-            // Determine final category: Claude's choice takes priority, fallback to feed hint
-            const claudeCategory = parsed?.category;
-            const finalCategory: ArticleCategory =
-              claudeCategory && VALID_CATEGORIES.has(claudeCategory)
-                ? (claudeCategory as ArticleCategory)
-                : feed.hint;
-
-            const hookTitle = parsed?.hook_title || item.title;
-            const summaryContent =
-              parsed?.summary ||
-              (item.description
-                ? item.description.substring(0, 347) + '...'
-                : '요약 정보가 제공되지 않습니다.');
-            const backgroundContent = parsed?.background || null;
-            const articleTags =
-              parsed && Array.isArray(parsed.tags) && parsed.tags.length > 0
-                ? parsed.tags
-                : FALLBACK_TAGS[finalCategory];
-
-            // Realtime duplicate check
-            const { data: dbDup } = await supabaseAdmin
-              .from('articles')
-              .select('id')
-              .eq('source_url', sourceUrl)
-              .maybeSingle();
-
-            if (dbDup) {
-              feedReport.skipped++;
-              existingUrls.add(normalizeUrl(sourceUrl));
-              continue;
-            }
-
-            // Parse pubDate
-            let publishedAt = new Date().toISOString();
-            if (item.pubDate) {
-              const d = new Date(item.pubDate);
-              if (!isNaN(d.getTime())) publishedAt = d.toISOString();
-            }
-
-            // Insert — image guaranteed non-null
-            const { error: insertError } = await supabaseAdmin.from('articles').insert({
-              category: finalCategory,
-              hook_title: hookTitle,
-              summary: summaryContent,
-              background: backgroundContent,
-              image_url: finalImageUrl,
-              source_url: sourceUrl,
-              source_name: feed.sourceName,
-              tags: articleTags,
-              published_at: publishedAt,
-            });
-
-            if (insertError) {
-              throw new Error(`DB insert error: ${insertError.message}`);
-            }
-
-            feedReport.inserted++;
-            existingUrls.add(normalizeUrl(sourceUrl));
-          } catch (itemErr: unknown) {
-            feedReport.failed++;
-            feedReport.errors.push(
-              `${item.title.substring(0, 30)}: ${(itemErr as Error).message}`
-            );
+        try {
+          const jsonMatch = text.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            parsed = JSON.parse(jsonMatch[0]);
+          } else {
+            throw new Error('No JSON found in Claude response.');
           }
+        } catch (jsonErr: any) {
+          throw new Error(`Claude JSON parse failed: ${jsonErr.message}`);
         }
-      } catch (catErr: unknown) {
-        feedReport.errors.push(`Feed error: ${(catErr as Error).message}`);
-      }
 
-      report.push(feedReport);
+        // Delete from queue and skip if Claude determines it's not trend-related
+        if (parsed?.skip === true) {
+          await supabaseAdmin.from('news_queue').delete().eq('id', queueItem.id);
+          successCount++;
+          continue;
+        }
+
+        const finalCategory = parsed?.category && VALID_CATEGORIES.has(parsed.category)
+          ? parsed.category
+          : queueItem.category;
+
+        const hookTitle = parsed?.hook_title || queueItem.title;
+        const summaryContent = parsed?.summary || '요약 정보가 제공되지 않습니다.';
+        const backgroundContent = parsed?.background || null;
+        const articleTags = parsed && Array.isArray(parsed.tags) && parsed.tags.length > 0
+          ? parsed.tags
+          : FALLBACK_TAGS[finalCategory as ArticleCategory];
+
+        // Parse pubDate
+        let publishedAt = new Date().toISOString();
+        if (queueItem.pub_date) {
+          const d = new Date(queueItem.pub_date);
+          if (!isNaN(d.getTime())) publishedAt = d.toISOString();
+        }
+
+        // Insert into Supabase articles
+        const { error: insertErr } = await supabaseAdmin.from('articles').insert({
+          category: finalCategory,
+          hook_title: hookTitle,
+          summary: summaryContent,
+          background: backgroundContent,
+          image_url: finalImageUrl,
+          source_url: sourceUrl,
+          source_name: queueItem.source_name,
+          tags: articleTags,
+          published_at: publishedAt,
+        });
+
+        if (insertErr) {
+          throw new Error(`Database insert failed: ${insertErr.message}`);
+        }
+
+        // Delete processed item from queue
+        await supabaseAdmin.from('news_queue').delete().eq('id', queueItem.id);
+        successCount++;
+
+      } catch (itemErr: any) {
+        failedCount++;
+        const errMsg = itemErr.message || 'Unknown processing error';
+        console.error(`[Queue Worker] Failed for ${sourceUrl}:`, errMsg);
+        errors.push(`${queueItem.title.substring(0, 30)}: ${errMsg}`);
+
+        const nextRetry = queueItem.retry_count + 1;
+        if (nextRetry >= 3) {
+          // Permanently fail and keep in queue with 'failed' status for inspection
+          await supabaseAdmin
+            .from('news_queue')
+            .update({
+              status: 'failed',
+              retry_count: nextRetry,
+              error_message: errMsg,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', queueItem.id);
+        } else {
+          // Re-queue back to pending for next worker invocation
+          await supabaseAdmin
+            .from('news_queue')
+            .update({
+              status: 'pending',
+              retry_count: nextRetry,
+              error_message: errMsg,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', queueItem.id);
+        }
+      }
     }
 
     return NextResponse.json({
       status: 'completed',
-      timestamp: new Date().toISOString(),
-      summary: report,
+      time_elapsed_ms: Date.now() - startTime,
+      ingested: ingestedCount,
+      skipped_ingest: skippedIngestCount,
+      queue_processed: processedCount,
+      queue_success: successCount,
+      queue_failed: failedCount,
+      errors,
     });
-  } catch (globalErr: unknown) {
+
+  } catch (globalErr: any) {
+    console.error('[Sync API] Global execution error:', globalErr);
     return NextResponse.json(
-      { error: `Internal server error: ${(globalErr as Error).message}` },
+      { error: `Internal server error: ${globalErr.message}` },
       { status: 500 }
     );
   }
