@@ -102,6 +102,29 @@ function getFallbackImage(url: string, category: ArticleCategory): string {
   return images[index];
 }
 
+// Bigram Jaccard Similarity Helper (Duplicate Title Prevention)
+function getBigrams(str: string): Set<string> {
+  const s = str.toLowerCase().replace(/\s+/g, '');
+  const bigrams = new Set<string>();
+  for (let i = 0; i < s.length - 1; i++) {
+    bigrams.add(s.substring(i, i + 2));
+  }
+  return bigrams;
+}
+
+function getStringSimilarity(str1: string, str2: string): number {
+  const b1 = getBigrams(str1);
+  const b2 = getBigrams(str2);
+  if (b1.size === 0 && b2.size === 0) return 1;
+  if (b1.size === 0 || b2.size === 0) return 0;
+  
+  let intersection = 0;
+  for (const val of b1) {
+    if (b2.has(val)) intersection++;
+  }
+  return intersection / (b1.size + b2.size - intersection);
+}
+
 // ─────────────────────────────────────────────────────────────
 // 2. URL NORMALIZATION
 // ─────────────────────────────────────────────────────────────
@@ -327,14 +350,19 @@ export async function GET(req: NextRequest) {
       await supabaseAdmin.from('articles').delete().neq('id', '00000000-0000-0000-0000-000000000000');
     }
 
-    // Fetch existing urls from articles and queue to prevent duplicates
-    const { data: existingArticles } = await supabaseAdmin.from('articles').select('source_url');
-    const { data: existingQueue } = await supabaseAdmin.from('news_queue').select('url');
+    // Fetch existing urls and titles from articles and queue to prevent duplicates
+    const { data: existingArticles } = await supabaseAdmin.from('articles').select('source_url, hook_title');
+    const { data: existingQueue } = await supabaseAdmin.from('news_queue').select('url, title');
 
     const processedUrls = new Set<string>([
       ...(existingArticles?.map(a => normalizeUrl(a.source_url)) ?? []),
       ...(existingQueue?.map(q => normalizeUrl(q.url)) ?? [])
     ]);
+
+    const existingEnTitles = [
+      ...(existingArticles?.map(a => a.hook_title) ?? []), // English title might be mapped under hook_title in fallback cases
+      ...(existingQueue?.map(q => q.title) ?? [])
+    ].filter(Boolean);
 
     for (const feed of RSS_FEEDS) {
       try {
@@ -342,6 +370,19 @@ export async function GET(req: NextRequest) {
         for (const item of rssItems) {
           const normUrl = normalizeUrl(item.link);
           if (processedUrls.has(normUrl)) {
+            skippedIngestCount++;
+            continue;
+          }
+
+          // English Title Similarity Check (Ingestion Duplicate Prevention)
+          let isTitleDuplicate = false;
+          for (const extTitle of existingEnTitles) {
+            if (getStringSimilarity(item.title, extTitle) >= 0.6) {
+              isTitleDuplicate = true;
+              break;
+            }
+          }
+          if (isTitleDuplicate) {
             skippedIngestCount++;
             continue;
           }
@@ -362,6 +403,7 @@ export async function GET(req: NextRequest) {
           if (!queueErr) {
             ingestedCount++;
             processedUrls.add(normUrl);
+            existingEnTitles.push(item.title);
           }
         }
       } catch (feedErr: any) {
@@ -441,15 +483,16 @@ export async function GET(req: NextRequest) {
 4. JSON 구조는 반드시 다음 6개의 필드를 포함해야 합니다:
    - "skip": 트렌드와 무관한 기사이면 true, 트렌드 관련 기사이면 false. (boolean)
    - "category": skip이 false일 때 위 5개 카테고리 중 하나를 정확히 입력. skip이 true이면 빈 문자열("").
-   - "hook_title": skip이 false일 때만 작성. 영어 제목을 한국어로 번역하여, 기획자·마케터의 이목을 끄는 실용적인 한국어 제목으로 작성 (15~25자 내외). 절대 영어 제목을 그대로 유지하지 마십시오. skip이 true이면 빈 문자열("").
+   - "hook_title": skip이 false일 때만 작성. 영어 제목을 한국어로 번역하되, 광고 문구나 자극적인 수식어 없이 객관적인 한국어 제목으로 작성 (15~25자 내외). 절대 영어 제목을 그대로 유지하지 마십시오. skip이 true이면 빈 문자열("").
    - "summary": skip이 false일 때만 작성. 다음 규칙을 반드시 따르세요:
-     * 가장 놀랍거나 즉시 활용 가능한 인사이트로 시작하세요. "이 기사는 ~을 소개합니다", "~에 대해 다루고 있습니다" 같은 서술식 도입부는 절대 쓰지 마세요.
-     * 기사에 나온 구체적인 수치, 브랜드명, 인물명, 전략명, 캠페인명을 1~2개 이상 직접 언급하세요. 막연한 표현("일부 브랜드", "여러 기업") 대신 실제 이름을 쓰세요.
-     * 마치 트렌드를 잘 아는 동료가 "야, 이거 봤어?" 하는 톤으로 핵심만 전달하세요.
+     * 철저히 객관적인 저널리즘 톤(사실 위주의 담담한 서술)을 유지하십시오. 제품을 광고하거나 특정 브랜드를 과도하게 칭송하고 홍보하는 듯한 어조("혁신적인 제품", "인기를 끌고 있는", "~을 경험해 보세요", "강력한 성능")는 절대 사용하지 마십시오.
+     * 첫 문장은 가장 중요한 사실이나 데이터 등 기사의 핵심 팩트로 바로 시작하세요. "이 기사는 ~을 소개합니다", "~에 대해 다룹니다" 같은 서술식 도입부는 금지입니다.
+     * 기사에 언급된 구체적인 수치, 브랜드명, 인물명, 전략명, 캠페인명 등의 사실관계(fact)를 1~2개 이상 구체적으로 포함하십시오.
+     * 마치 트렌드를 잘 아는 동료가 객관적이고 담백하게 팩트 중심의 briefing을 전달하는 톤으로 작성하세요.
      * 나쁜 예: "패션 산업으로의 진입이 점점 어려워지고 있는 가운데, 이 기사는 신입들이 업계 문을 열 수 있는 방법들을 소개합니다."
-     * 좋은 예: "포트폴리오 대신 SNS 팔로워를 보여주는 시대. 보그 편집장 출신 멘토 연결 플랫폼 'The Intern', 링크드인보다 인스타그램 DM이 더 잘 통한다는 현직자 조언이 눈길을 억누른다."
+     * 좋은 예: "포트폴리오 대신 SNS 팔로워를 보여주는 시대. 보그 편집장 출신 멘토 연결 플랫폼 'The Intern', 링크드인보다 인스타그램 DM이 더 잘 통한다는 현직자 조언이 눈길을 끈다."
      * 공백 포함 250~350자 사이. 반드시 완전한 문장으로 끝내야 하며 말줄임표로 끝나서는 안 됩니다. skip이 true이면 빈 문자열("").
-   - "background": skip이 false일 때만 작성. 한국 독자가 모를 수 있는 문화적 맥락, 브랜드 배경, 시장 구조를 1~2문장으로 설명. skip이 true이면 빈 문자열("").
+   - "background": skip이 false일 때만 작성. 한국 독자가 모를 수 있는 문화적 맥락, 브랜드 배경, 시장 구조를 객관적으로 1~2문장으로 설명. skip이 true이면 빈 문자열("").
    - "tags": skip이 false일 때만 작성. 한국어로 생성한 1~3개의 핵심 한글 키워드 태그 배열. skip이 true이면 빈 배열([]).`;
 
         const userContent = `기사 제목: ${queueItem.title}\n본문 내용: ${finalContent}`;
@@ -499,6 +542,32 @@ export async function GET(req: NextRequest) {
           : queueItem.category;
 
         const hookTitle = parsed?.hook_title || queueItem.title;
+
+        // Korean Title Similarity Check (Processing Duplicate Prevention)
+        const { data: recentArticles } = await supabaseAdmin
+          .from('articles')
+          .select('hook_title')
+          .order('published_at', { ascending: false })
+          .limit(150);
+
+        let isKoreanDuplicate = false;
+        if (recentArticles) {
+          for (const art of recentArticles) {
+            if (getStringSimilarity(hookTitle, art.hook_title) >= 0.6) {
+              isKoreanDuplicate = true;
+              break;
+            }
+          }
+        }
+
+        if (isKoreanDuplicate) {
+          console.log(`[Queue Worker] Skipping duplicate Korean title: "${hookTitle}"`);
+          // Delete from queue because it's a duplicate, and skip saving
+          await supabaseAdmin.from('news_queue').delete().eq('id', queueItem.id);
+          successCount++;
+          continue;
+        }
+
         const summaryContent = parsed?.summary || '요약 정보가 제공되지 않습니다.';
         const backgroundContent = parsed?.background || null;
         const articleTags = parsed && Array.isArray(parsed.tags) && parsed.tags.length > 0
