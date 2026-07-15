@@ -14,12 +14,26 @@ interface FeedConfig {
 }
 
 const RSS_FEEDS: FeedConfig[] = [
-  { key: 'tech',    sourceName: 'The Verge',  url: 'https://www.theverge.com/rss/index.xml' },
+  // 테크
+  { key: 'tech',    sourceName: 'The Verge', url: 'https://www.theverge.com/rss/index.xml' },
+  { key: 'tech',    sourceName: 'Wired',     url: 'https://www.wired.com/feed/rss' },
+  // 패션
   { key: 'fashion', sourceName: 'Hypebeast', url: 'https://hypebeast.com/feed' },
+  { key: 'fashion', sourceName: 'Vogue',     url: 'https://www.vogue.com/feed/rss' },
+  { key: 'fashion', sourceName: 'BoF',       url: 'https://www.businessoffashion.com/rss' },
+  // 뷰티
   { key: 'beauty',  sourceName: 'Allure',    url: 'https://www.allure.com/feed/rss' },
-  { key: 'retail',  sourceName: 'Adweek',   url: 'https://www.adweek.com/feed/' },
-  { key: 'culture', sourceName: 'Pitchfork', url: 'https://pitchfork.com/rss/news/' },
+  { key: 'beauty',  sourceName: 'Byrdie',    url: 'https://www.byrdie.com/rss' },
+  // 마케팅
+  { key: 'retail',  sourceName: 'Adweek',          url: 'https://www.adweek.com/feed/' },
+  { key: 'retail',  sourceName: 'Marketing Week',  url: 'https://marketingweek.com/feed/' },
+  // 컬처
+  { key: 'culture', sourceName: 'Pitchfork',    url: 'https://pitchfork.com/rss/news/' },
+  { key: 'culture', sourceName: 'Dazed',        url: 'https://www.dazeddigital.com/rss' },
+  { key: 'culture', sourceName: 'i-D',          url: 'https://www.i-d.co/rss' },
+  // 밈/소셜
   { key: 'meme',    sourceName: 'Mashable',  url: 'https://mashable.com/feeds/rss/all' },
+  { key: 'meme',    sourceName: 'BuzzFeed',  url: 'https://www.buzzfeed.com/index.xml' },
 ];
 
 const FALLBACK_TAGS: Record<string, string[]> = {
@@ -31,8 +45,18 @@ const FALLBACK_TAGS: Record<string, string[]> = {
   meme:    ['밈', '인터넷문화', '트렌드'],
 };
 
+// Unsplash fallback images per category
+const FALLBACK_IMAGES: Record<string, string> = {
+  tech:    'https://images.unsplash.com/photo-1518770660439-4636190af475?w=800',
+  fashion: 'https://images.unsplash.com/photo-1558769132-cb1aea458c5e?w=800',
+  beauty:  'https://images.unsplash.com/photo-1556228720-195a672e8a03?w=800',
+  retail:  'https://images.unsplash.com/photo-1611162617213-7d7a39e9b1d7?w=800',
+  culture: 'https://images.unsplash.com/photo-1483985988355-763728e1935b?w=800',
+  meme:    'https://images.unsplash.com/photo-1611162616475-46b635cb6868?w=800',
+};
+
 // ─────────────────────────────────────────────────────────────
-// 2. URL NORMALIZATION (duplicate prevention)
+// 2. URL NORMALIZATION
 // ─────────────────────────────────────────────────────────────
 function normalizeUrl(urlStr: string): string {
   try {
@@ -63,7 +87,6 @@ function extractCdata(raw: string): string {
 function parseRss(xml: string, limit: number): RssItem[] {
   const items: RssItem[] = [];
 
-  // Split into <item> blocks
   const itemRegex = /<item[\s>]([\s\S]*?)<\/item>/gi;
   let match: RegExpExecArray | null;
 
@@ -75,7 +98,7 @@ function parseRss(xml: string, limit: number): RssItem[] {
     const title = titleM ? extractCdata(titleM[1]) : '';
     if (!title) continue;
 
-    // link — prefer <link> text node over CDATA; some feeds use <link href="...">
+    // link
     let link = '';
     const linkM = block.match(/<link[^>]*>([\s\S]*?)<\/link>/i);
     if (linkM) {
@@ -86,20 +109,48 @@ function parseRss(xml: string, limit: number): RssItem[] {
     }
     if (!link) continue;
 
-    // image — try media:content first, then enclosure, then og:image in description
+    // ── Image extraction chain (RSS-level) ───────────────────
     let imageUrl: string | null = null;
 
-    const mediaM = block.match(/<media:content[^>]+url=["']([^"']+)["']/i);
-    if (mediaM) {
-      imageUrl = mediaM[1];
-    } else {
-      const enclosureM = block.match(/<enclosure[^>]+url=["']([^"']+)["']/i);
+    // 1) media:content with url attribute
+    const mediaContentM = block.match(/<media:content[^>]+url=["']([^"']+)["']/i);
+    if (mediaContentM) {
+      imageUrl = mediaContentM[1];
+    }
+
+    // 2) media:thumbnail
+    if (!imageUrl) {
+      const thumbM = block.match(/<media:thumbnail[^>]+url=["']([^"']+)["']/i);
+      if (thumbM) imageUrl = thumbM[1];
+    }
+
+    // 3) enclosure with image type
+    if (!imageUrl) {
+      const enclosureM = block.match(/<enclosure[^>]+url=["']([^"']+)["'][^>]*type=["'](image[^"']*)["']/i)
+        || block.match(/<enclosure[^>]+type=["'](image[^"']*)["'][^>]*url=["']([^"']+)["']/i);
       if (enclosureM) {
-        imageUrl = enclosureM[1];
-      } else {
-        // try <media:thumbnail>
-        const thumbM = block.match(/<media:thumbnail[^>]+url=["']([^"']+)["']/i);
-        if (thumbM) imageUrl = thumbM[1];
+        // The capturing group position differs between the two regex patterns
+        const urlGroup = block.match(/<enclosure[^>]+url=["']([^"']+)["'][^>]*type=["']image/i);
+        if (urlGroup) imageUrl = urlGroup[1];
+      }
+    }
+
+    // 4) itunes:image
+    if (!imageUrl) {
+      const itunesM = block.match(/<itunes:image[^>]+href=["']([^"']+)["']/i);
+      if (itunesM) imageUrl = itunesM[1];
+    }
+
+    // 5) og:image inside description/content CDATA HTML
+    if (!imageUrl) {
+      const contentM =
+        block.match(/<content:encoded[^>]*>([\s\S]*?)<\/content:encoded>/i) ||
+        block.match(/<description[^>]*>([\s\S]*?)<\/description>/i);
+      if (contentM) {
+        const html = extractCdata(contentM[1]);
+        const ogM = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)
+          || html.match(/<img[^>]+src=["']([^"']+)["']/i);
+        if (ogM) imageUrl = ogM[1];
       }
     }
 
@@ -107,12 +158,11 @@ function parseRss(xml: string, limit: number): RssItem[] {
     const pubM = block.match(/<pubDate[^>]*>([\s\S]*?)<\/pubDate>/i);
     const pubDate = pubM ? extractCdata(pubM[1]).trim() : null;
 
-    // description / content:encoded (for summary text)
+    // description / content:encoded
     const contentM =
       block.match(/<content:encoded[^>]*>([\s\S]*?)<\/content:encoded>/i) ||
       block.match(/<description[^>]*>([\s\S]*?)<\/description>/i);
     const rawDesc = contentM ? extractCdata(contentM[1]) : '';
-    // Strip HTML tags from description
     const description = rawDesc.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 3000);
 
     items.push({ title, link, imageUrl, pubDate, description });
@@ -122,7 +172,49 @@ function parseRss(xml: string, limit: number): RssItem[] {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 4. FETCH RSS
+// 4. OG:IMAGE FALLBACK — fetch article page
+// ─────────────────────────────────────────────────────────────
+async function fetchOgImage(articleUrl: string): Promise<string | null> {
+  try {
+    const res = await fetch(articleUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; BriefBot/1.0)',
+        'Accept': 'text/html',
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    // Only read first 30KB to avoid large payloads
+    const reader = res.body?.getReader();
+    if (!reader) return null;
+    let html = '';
+    let bytes = 0;
+    while (bytes < 30000) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      html += new TextDecoder().decode(value);
+      bytes += value.length;
+    }
+    reader.cancel();
+
+    // og:image
+    const ogM = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)
+      || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+    if (ogM) return ogM[1];
+
+    // twitter:image
+    const twM = html.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i)
+      || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["']/i);
+    if (twM) return twM[1];
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 5. FETCH RSS
 // ─────────────────────────────────────────────────────────────
 async function fetchRssFeed(feedUrl: string, limit: number): Promise<RssItem[]> {
   const res = await fetch(feedUrl, {
@@ -138,13 +230,28 @@ async function fetchRssFeed(feedUrl: string, limit: number): Promise<RssItem[]> 
 }
 
 // ─────────────────────────────────────────────────────────────
-// 5. MAIN HANDLER
+// 6. RESOLVE FINAL IMAGE (RSS → og:image fetch → Unsplash)
+// ─────────────────────────────────────────────────────────────
+async function resolveImage(item: RssItem, category: string): Promise<string> {
+  // Already found from RSS
+  if (item.imageUrl) return item.imageUrl;
+
+  // Try fetching og:image from article page
+  const og = await fetchOgImage(item.link);
+  if (og) return og;
+
+  // Category-based Unsplash fallback
+  return FALLBACK_IMAGES[category] || FALLBACK_IMAGES['tech'];
+}
+
+// ─────────────────────────────────────────────────────────────
+// 7. MAIN HANDLER
 // ─────────────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   try {
     const limitParam = req.nextUrl.searchParams.get('limit');
     const forceParam = req.nextUrl.searchParams.get('force') === 'true';
-    const pageSize = limitParam ? parseInt(limitParam, 10) : 5;
+    const pageSize = limitParam ? parseInt(limitParam, 10) : 10; // default 10 per feed
 
     const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
     const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -163,7 +270,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Fetch existing source_urls from Supabase (duplicate prevention)
+    // Fetch existing source_urls for duplicate prevention
     const { data: existingArticles, error: dbError } = await supabaseAdmin
       .from('articles')
       .select('source_url');
@@ -185,6 +292,7 @@ export async function GET(req: NextRequest) {
     const anthropic = new Anthropic({ apiKey: anthropicApiKey });
 
     const report: {
+      feed: string;
       category: string;
       fetched: number;
       processed: number;
@@ -196,7 +304,8 @@ export async function GET(req: NextRequest) {
 
     // ── Process each RSS feed ────────────────────────────────
     for (const feed of RSS_FEEDS) {
-      const categoryReport = {
+      const feedReport = {
+        feed: feed.sourceName,
         category: feed.key,
         fetched: 0,
         processed: 0,
@@ -208,18 +317,18 @@ export async function GET(req: NextRequest) {
 
       try {
         const rssItems = await fetchRssFeed(feed.url, pageSize);
-        categoryReport.fetched = rssItems.length;
+        feedReport.fetched = rssItems.length;
 
         for (const item of rssItems) {
           const sourceUrl = item.link;
 
-          // Skip already-saved articles (unless force=true)
+          // Skip already-saved articles
           if (!forceParam && existingUrls.has(normalizeUrl(sourceUrl))) {
-            categoryReport.skipped++;
+            feedReport.skipped++;
             continue;
           }
 
-          categoryReport.processed++;
+          feedReport.processed++;
 
           // ── Claude: filter + translate + summarize + background ─────
           const systemPrompt = `당신은 트렌드 및 기획 전문 매체 BRIEF의 AI 편집장입니다. 기획자, 마케터, 비즈니스 리더들을 위해 영어 뉴스 기사를 선별하고 한국어 트렌드 요약과 배경 지식을 작성해 주세요.
@@ -278,7 +387,7 @@ export async function GET(req: NextRequest) {
             // Skip non-trend articles
             if (parsed?.skip === true) {
               console.log(`[Sync API] Skipped (not trend-related): ${item.title}`);
-              categoryReport.skipped++;
+              feedReport.skipped++;
               continue;
             }
 
@@ -292,6 +401,9 @@ export async function GET(req: NextRequest) {
             const articleTags = parsed && Array.isArray(parsed.tags)
               ? parsed.tags
               : FALLBACK_TAGS[feed.key] || [feed.key];
+
+            // Resolve image (RSS → og:image fetch → Unsplash fallback)
+            const finalImageUrl = await resolveImage(item, feed.key);
 
             // Realtime duplicate check
             const { data: dbDup, error: dupCheckError } = await supabaseAdmin
@@ -308,7 +420,7 @@ export async function GET(req: NextRequest) {
             }
 
             if (dbDup) {
-              categoryReport.skipped++;
+              feedReport.skipped++;
               existingUrls.add(normalizeUrl(sourceUrl));
               continue;
             }
@@ -316,8 +428,8 @@ export async function GET(req: NextRequest) {
             // Parse pubDate
             let publishedAt = new Date().toISOString();
             if (item.pubDate) {
-              const parsed = new Date(item.pubDate);
-              if (!isNaN(parsed.getTime())) publishedAt = parsed.toISOString();
+              const d = new Date(item.pubDate);
+              if (!isNaN(d.getTime())) publishedAt = d.toISOString();
             }
 
             // Insert into Supabase
@@ -326,7 +438,7 @@ export async function GET(req: NextRequest) {
               hook_title: hookTitle,
               summary: summaryContent,
               background: backgroundContent,
-              image_url: item.imageUrl || null,
+              image_url: finalImageUrl,
               source_url: sourceUrl,
               source_name: feed.sourceName,
               tags: articleTags,
@@ -337,28 +449,28 @@ export async function GET(req: NextRequest) {
               throw new Error(`Database insert error: ${insertError.message}`);
             }
 
-            categoryReport.inserted++;
+            feedReport.inserted++;
             existingUrls.add(normalizeUrl(sourceUrl));
           } catch (itemErr: unknown) {
             console.error(
               `[Sync API] Failed to process article ${sourceUrl}:`,
               (itemErr as Error).message
             );
-            categoryReport.failed++;
-            categoryReport.errors.push(
+            feedReport.failed++;
+            feedReport.errors.push(
               `${item.title.substring(0, 30)}...: ${(itemErr as Error).message}`
             );
           }
         }
       } catch (catErr: unknown) {
         console.error(
-          `[Sync API] RSS feed ${feed.key} error:`,
+          `[Sync API] RSS feed ${feed.sourceName} error:`,
           (catErr as Error).message
         );
-        categoryReport.errors.push(`Feed error: ${(catErr as Error).message}`);
+        feedReport.errors.push(`Feed error: ${(catErr as Error).message}`);
       }
 
-      report.push(categoryReport);
+      report.push(feedReport);
     }
 
     return NextResponse.json({
