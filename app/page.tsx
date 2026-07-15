@@ -68,10 +68,15 @@ export default function FeedPage() {
       if (!cancelled) {
         const uniqueArticles: Article[] = [];
         for (const art of data) {
-          const isDuplicate = uniqueArticles.some(
+          const isTitleDup = uniqueArticles.some(
             (existing) => getStringSimilarity(art.hook_title, existing.hook_title) >= 0.6
           );
-          if (!isDuplicate) {
+          // Check if the custom image URL is already in the unique list (excluding placeholder/fallbacks)
+          const isImageDup = art.image_url && 
+            !art.image_url.includes('images.unsplash.com') && 
+            uniqueArticles.some((existing) => existing.image_url === art.image_url);
+
+          if (!isTitleDup && !isImageDup) {
             uniqueArticles.push(art);
           }
         }

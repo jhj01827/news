@@ -560,8 +560,21 @@ export async function GET(req: NextRequest) {
           }
         }
 
-        if (isKoreanDuplicate) {
-          console.log(`[Queue Worker] Skipping duplicate Korean title: "${hookTitle}"`);
+        // Image URL Duplicate Check (excluding standard unsplash fallbacks)
+        let isImageDuplicate = false;
+        if (finalImageUrl && !finalImageUrl.includes('images.unsplash.com')) {
+          const { data: dupImageArt } = await supabaseAdmin
+            .from('articles')
+            .select('id')
+            .eq('image_url', finalImageUrl)
+            .limit(1);
+          if (dupImageArt && dupImageArt.length > 0) {
+            isImageDuplicate = true;
+          }
+        }
+
+        if (isKoreanDuplicate || isImageDuplicate) {
+          console.log(`[Queue Worker] Skipping duplicate article (Korean title or image): "${hookTitle}"`);
           // Delete from queue because it's a duplicate, and skip saving
           await supabaseAdmin.from('news_queue').delete().eq('id', queueItem.id);
           successCount++;
