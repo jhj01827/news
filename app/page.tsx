@@ -7,6 +7,29 @@ import CategoryTabs from '@/components/CategoryTabs';
 import FeedGrid from '@/components/FeedGrid';
 import { trackEvent } from '@/lib/mixpanel';
 
+// Bigram Jaccard Similarity Helper (Client-side Duplicate Prevention)
+function getBigrams(str: string): Set<string> {
+  const s = str.toLowerCase().replace(/\s+/g, '');
+  const bigrams = new Set<string>();
+  for (let i = 0; i < s.length - 1; i++) {
+    bigrams.add(s.substring(i, i + 2));
+  }
+  return bigrams;
+}
+
+function getStringSimilarity(str1: string, str2: string): number {
+  const b1 = getBigrams(str1);
+  const b2 = getBigrams(str2);
+  if (b1.size === 0 && b2.size === 0) return 1;
+  if (b1.size === 0 || b2.size === 0) return 0;
+  
+  let intersection = 0;
+  for (const val of b1) {
+    if (b2.has(val)) intersection++;
+  }
+  return intersection / (b1.size + b2.size - intersection);
+}
+
 export default function FeedPage() {
   const [category, setCategory] = useState<Category>('all');
   const [articles, setArticles] = useState<Article[]>([]);
@@ -44,11 +67,11 @@ export default function FeedPage() {
 
       if (!cancelled) {
         const uniqueArticles: Article[] = [];
-        const seenTitles = new Set<string>();
         for (const art of data) {
-          const trimmedTitle = art.hook_title.trim();
-          if (!seenTitles.has(trimmedTitle)) {
-            seenTitles.add(trimmedTitle);
+          const isDuplicate = uniqueArticles.some(
+            (existing) => getStringSimilarity(art.hook_title, existing.hook_title) >= 0.6
+          );
+          if (!isDuplicate) {
             uniqueArticles.push(art);
           }
         }
